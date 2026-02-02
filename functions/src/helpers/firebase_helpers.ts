@@ -1,4 +1,4 @@
-import * as admin from "firebase-admin";
+import { getDb } from "../utils/firebase";
 
 /* 
  This function is used to get a document from a firestore collection
@@ -8,7 +8,7 @@ export async function getDocumentIdByParam(
   paramName: string,
   valueToSerach: any
 ): Promise<string> {
-  const db = admin.firestore();
+  const db = getDb();
   const collectionRef = db.collection(collection);
   const query = collectionRef.where(paramName, "==", valueToSerach);
   const querySnapshot = await query.get();
@@ -25,7 +25,7 @@ export async function updateDocumentPropertyByDocumentId(
   property: string,
   value: any
 ): Promise<void> {
-  const db = admin.firestore();
+  const db = getDb();
   const collectionRef = db.collection(collection);
   const documentRef = collectionRef.doc(documentId);
   await documentRef.update({
@@ -37,7 +37,7 @@ export async function updateDocumentPropertyByDocumentId(
   This function is used to create a empty document in a firestore collection
 */
 export async function createEmptyDocument(collection: string): Promise<string> {
-  const db = admin.firestore();
+  const db = getDb();
   const collectionRef = db.collection(collection);
   const newDocument = await collectionRef.add({});
   return newDocument.id;
@@ -50,7 +50,7 @@ export async function deleteDocument(
   collection: string,
   documentId: string
 ): Promise<void> {
-  const db = admin.firestore();
+  const db = getDb();
   const collectionRef = db.collection(collection);
   const documentRef = collectionRef.doc(documentId);
   await documentRef.update({
@@ -63,7 +63,7 @@ export async function updateDocumentData(
   documentId: string,
   data: any
 ): Promise<void> {
-  const db = admin.firestore();
+  const db = getDb();
   const collectionRef = db.collection(collection);
   const documentRef = collectionRef.doc(documentId);
   await documentRef.set(data);

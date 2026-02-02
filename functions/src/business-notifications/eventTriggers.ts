@@ -1,0 +1,329 @@
+/**
+ * Event-Driven Business Notification Triggers
+ *
+ * Firestore triggers that send notifications when specific
+ * events occur (new favourite, CTA click).
+ *
+ * Part of the Automated Engagement System - Part B (Phase 5)
+ */
+
+import * as functions from "firebase-functions/v1";
+import { admin, getDb } from "../utils/firebase";
+import {
+  getBusinessInfo,
+  sendBusinessNotification,
+  wasRecentlySent,
+  isEmailNotificationEnabled,
+} from "./emailSender";
+import {
+  getNewFavouriteEmail,
+  getCtaClickedEmail,
+} from "./emailTemplates";
+
+// ============================================================================
+// New Favourite Trigger
+// ============================================================================
+
+/**
+ * Trigger when a user adds a business to favourites
+ * Listens to the favourites collection
+ */
+export const onNewFavourite = functions
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .firestore.document("favourites/{favouriteId}")
+  .onCreate(async (snap, context) => {
+    const favourite = snap.data();
+
+    // Check required fields
+    if (!favourite.business_id) {
+      console.log("No business_id in favourite document");
+      return null;
+    }
+
+    const businessId = favourite.business_id;
+
+    console.log(`New favourite added for business: ${businessId}`);
+
+    try {
+      // Check if email notifications are enabled
+      if (!(await isEmailNotificationEnabled(businessId))) {
+        console.log(`Email notifications disabled for ${businessId}`);
+        return null;
+      }
+
+      // Check if we recently sent a new_favourite notification (4 hour cooldown)
+      // This prevents spamming if multiple users favourite in quick succession
+      if (await wasRecentlySent(businessId, "new_favourite", 4)) {
+        console.log(`Recently sent new_favourite to ${businessId}, skipping`);
+        return null;
+      }
+
+      const business = await getBusinessInfo(businessId);
+      if (!business) {
+        console.log(`Business not found: ${businessId}`);
+        return null;
+      }
+
+      // Try to get user info for rank
+      let userRank: string | undefined;
+      if (favourite.user_id) {
+        const userDoc = await getDb().collection("users").doc(favourite.user_id).get();
+        if (userDoc.exists) {
+          userRank = userDoc.data()?.rank;
+        }
+      }
+
+      const emailContent = getNewFavouriteEmail(business, {
+        user_rank: userRank,
+      });
+
+      await sendBusinessNotification(
+        business,
+        "new_favourite",
+        emailContent,
+        { user_rank: userRank }
+      );
+
+      return null;
+    } catch (error) {
+      console.error("Error sending new favourite notification:", error);
+      return null;
+    }
+  });
+
+// ============================================================================
+// CTA Click Trigger
+// ============================================================================
+
+/**
+ * Trigger when a user clicks on a business CTA (phone, whatsapp, website, navigation)
+ * Listens to analytics_events collection for click events
+ */
+export const onCtaClick = functions
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .firestore.document("analytics_events/{eventId}")
+  .onCreate(async (snap, context) => {
+    const event = snap.data();
+
+    // Only process click events
+    if (event.event_type !== "click") {
+      return null;
+    }
+
+    // Must have a business_id and cta_type
+    if (!event.business_id || !event.cta_type) {
+      return null;
+    }
+
+    const businessId = event.business_id;
+    const ctaType = event.cta_type as "phone" | "whatsapp" | "website" | "navigation";
+
+    // Validate CTA type
+    if (!["phone", "whatsapp", "website", "navigation"].includes(ctaType)) {
+      return null;
+    }
+
+    console.log(`CTA click (${ctaType}) for business: ${businessId}`);
+
+    try {
+      // Check if email notifications are enabled
+      if (!(await isEmailNotificationEnabled(businessId))) {
+        console.log(`Email notifications disabled for ${businessId}`);
+        return null;
+      }
+
+      // Check if we recently sent a cta_clicked notification (2 hour cooldown)
+      if (await wasRecentlySent(businessId, "cta_clicked", 2)) {
+        console.log(`Recently sent cta_clicked to ${businessId}, skipping`);
+        return null;
+      }
+
+      const business = await getBusinessInfo(businessId);
+      if (!business) {
+        console.log(`Business not found: ${businessId}`);
+        return null;
+      }
+
+      const emailContent = getCtaClickedEmail(business, { cta_type: ctaType });
+
+      await sendBusinessNotification(
+        business,
+        "cta_clicked",
+        emailContent,
+        { cta_type: ctaType }
+      );
+
+      return null;
+    } catch (error) {
+      console.error("Error sending CTA click notification:", error);
+      return null;
+    }
+  });
+
+// ============================================================================
+// Alternative: Batch favourites trigger
+// ============================================================================
+
+/**
+ * Alternative approach: Scheduled check for new favourites
+ * Can be used instead of real-time trigger if needed
+ * Schedule: Every 4 hours
+ */
+export const checkNewFavourites = functions
+  .runWith({ secrets: ["RESEND_API_KEY"], timeoutSeconds: 300 })
+  .pubsub.schedule("0 */4 * * *")
+  .timeZone("America/Bogota")
+  .onRun(async (context) => {
+    console.log("Checking for new favourites...");
+
+    // Check favourites from the last 4 hours
+    const fourHoursAgo = new Date();
+    fourHoursAgo.setHours(fourHoursAgo.getHours() - 4);
+
+    try {
+      const recentFavourites = await getDb()
+        .collection("favourites")
+        .where("created_at", ">", admin.firestore.Timestamp.fromDate(fourHoursAgo))
+        .get();
+
+      // Group by business
+      const businessFavourites = new Map<string, number>();
+
+      for (const doc of recentFavourites.docs) {
+        const businessId = doc.data().business_id;
+        if (businessId) {
+          businessFavourites.set(
+            businessId,
+            (businessFavourites.get(businessId) || 0) + 1
+          );
+        }
+      }
+
+      console.log(
+        `Found favourites for ${businessFavourites.size} businesses`
+      );
+
+      let sent = 0;
+
+      for (const [businessId, count] of businessFavourites) {
+        // Skip if recently notified
+        if (await wasRecentlySent(businessId, "new_favourite", 4)) {
+          continue;
+        }
+
+        if (!(await isEmailNotificationEnabled(businessId))) {
+          continue;
+        }
+
+        const business = await getBusinessInfo(businessId);
+        if (!business) continue;
+
+        const emailContent = getNewFavouriteEmail(business, {});
+
+        await sendBusinessNotification(
+          business,
+          "new_favourite",
+          emailContent,
+          { count }
+        );
+
+        sent++;
+      }
+
+      console.log(`New favourites check complete: ${sent} notifications sent`);
+      return null;
+    } catch (error) {
+      console.error("Error checking new favourites:", error);
+      return null;
+    }
+  });
+
+// ============================================================================
+// Alternative: Batch CTA clicks trigger
+// ============================================================================
+
+/**
+ * Alternative approach: Scheduled check for CTA clicks
+ * Schedule: Every 2 hours
+ */
+export const checkCtaClicks = functions
+  .runWith({ secrets: ["RESEND_API_KEY"], timeoutSeconds: 300 })
+  .pubsub.schedule("0 */2 * * *")
+  .timeZone("America/Bogota")
+  .onRun(async (context) => {
+    console.log("Checking for CTA clicks...");
+
+    // Check clicks from the last 2 hours
+    const twoHoursAgo = new Date();
+    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+
+    try {
+      const recentClicks = await getDb()
+        .collection("analytics_events")
+        .where("event_type", "==", "click")
+        .where("timestamp", ">", admin.firestore.Timestamp.fromDate(twoHoursAgo))
+        .get();
+
+      // Group by business, keep track of CTA types
+      const businessClicks = new Map<
+        string,
+        { types: Set<string>; count: number }
+      >();
+
+      for (const doc of recentClicks.docs) {
+        const event = doc.data();
+        if (event.business_id && event.cta_type) {
+          if (!businessClicks.has(event.business_id)) {
+            businessClicks.set(event.business_id, {
+              types: new Set(),
+              count: 0,
+            });
+          }
+          const clicks = businessClicks.get(event.business_id)!;
+          clicks.types.add(event.cta_type);
+          clicks.count++;
+        }
+      }
+
+      console.log(`Found clicks for ${businessClicks.size} businesses`);
+
+      let sent = 0;
+
+      for (const [businessId, clicks] of businessClicks) {
+        // Skip if recently notified
+        if (await wasRecentlySent(businessId, "cta_clicked", 2)) {
+          continue;
+        }
+
+        if (!(await isEmailNotificationEnabled(businessId))) {
+          continue;
+        }
+
+        const business = await getBusinessInfo(businessId);
+        if (!business) continue;
+
+        // Use the most relevant CTA type
+        const ctaType = (clicks.types.has("phone") ? "phone" :
+          clicks.types.has("whatsapp") ? "whatsapp" :
+          clicks.types.has("website") ? "website" : "navigation") as
+          "phone" | "whatsapp" | "website" | "navigation";
+
+        const emailContent = getCtaClickedEmail(business, { cta_type: ctaType });
+
+        await sendBusinessNotification(
+          business,
+          "cta_clicked",
+          emailContent,
+          { cta_type: ctaType, count: clicks.count }
+        );
+
+        sent++;
+      }
+
+      console.log(`CTA clicks check complete: ${sent} notifications sent`);
+      return null;
+    } catch (error) {
+      console.error("Error checking CTA clicks:", error);
+      return null;
+    }
+  });
