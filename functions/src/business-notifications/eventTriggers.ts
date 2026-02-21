@@ -8,7 +8,8 @@
  */
 
 import * as functions from "firebase-functions/v1";
-import { admin, getDb } from "../utils/firebase";
+import { getDb } from "../utils/firebase";
+import { Timestamp } from "firebase-admin/firestore"
 import {
   getBusinessInfo,
   sendBusinessNotification,
@@ -26,63 +27,67 @@ import {
 
 /**
  * Trigger when a user adds a business to favourites
- * Listens to the favourites collection
+ * Listens to updates on user documents and detects changes to favourite_businesses array
  */
 export const onNewFavourite = functions
   .runWith({ secrets: ["RESEND_API_KEY"] })
-  .firestore.document("favourites/{favouriteId}")
-  .onCreate(async (snap, context) => {
-    const favourite = snap.data();
+  .firestore.document("users/{userId}")
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
 
-    // Check required fields
-    if (!favourite.business_id) {
-      console.log("No business_id in favourite document");
+    const previousFavourites: string[] = before.favourite_businesses || [];
+    const currentFavourites: string[] = after.favourite_businesses || [];
+
+    // Find newly added business IDs
+    const newlyAdded = currentFavourites.filter(
+      (id) => !previousFavourites.includes(id)
+    );
+
+    if (newlyAdded.length === 0) {
       return null;
     }
 
-    const businessId = favourite.business_id;
+    const userId = context.params.userId;
+    const rank = after.rank.split("_");
+    const userRank = rank[2] + " de la " + rank[0];
 
-    console.log(`New favourite added for business: ${businessId}`);
+    console.log(`User ${userId} added ${newlyAdded.length} new favourite(s)`);
 
     try {
-      // Check if email notifications are enabled
-      if (!(await isEmailNotificationEnabled(businessId))) {
-        console.log(`Email notifications disabled for ${businessId}`);
-        return null;
-      }
-
-      // Check if we recently sent a new_favourite notification (4 hour cooldown)
-      // This prevents spamming if multiple users favourite in quick succession
-      if (await wasRecentlySent(businessId, "new_favourite", 4)) {
-        console.log(`Recently sent new_favourite to ${businessId}, skipping`);
-        return null;
-      }
-
-      const business = await getBusinessInfo(businessId);
-      if (!business) {
-        console.log(`Business not found: ${businessId}`);
-        return null;
-      }
-
-      // Try to get user info for rank
-      let userRank: string | undefined;
-      if (favourite.user_id) {
-        const userDoc = await getDb().collection("users").doc(favourite.user_id).get();
-        if (userDoc.exists) {
-          userRank = userDoc.data()?.rank;
+      for (const businessId of newlyAdded) {
+        // Check if email notifications are enabled
+        if (!(await isEmailNotificationEnabled(businessId))) {
+          console.log(`Email notifications disabled for ${businessId}`);
+          continue;
         }
+
+        // Check if we recently sent a new_favourite notification (24 hour cooldown)
+        // This prevents spamming if multiple users favourite in quick succession
+        if (await wasRecentlySent(businessId, "new_favourite", 24)) {
+          console.log(`Recently sent new_favourite to ${businessId}, skipping`);
+          continue;
+        }
+
+        const business = await getBusinessInfo(businessId);
+        if (!business) {
+          console.log(`Business not found: ${businessId}`);
+          continue;
+        }
+
+        const emailContent = getNewFavouriteEmail(business, {
+          user_rank: userRank,
+        });
+
+        await sendBusinessNotification(
+          business,
+          "new_favourite",
+          emailContent,
+          { user_rank: userRank }
+        );
+
+        console.log(`Sent new favourite notification for business: ${businessId}`);
       }
-
-      const emailContent = getNewFavouriteEmail(business, {
-        user_rank: userRank,
-      });
-
-      await sendBusinessNotification(
-        business,
-        "new_favourite",
-        emailContent,
-        { user_rank: userRank }
-      );
 
       return null;
     } catch (error) {
@@ -161,107 +166,29 @@ export const onCtaClick = functions
   });
 
 // ============================================================================
-// Alternative: Batch favourites trigger
-// ============================================================================
-
-/**
- * Alternative approach: Scheduled check for new favourites
- * Can be used instead of real-time trigger if needed
- * Schedule: Every 4 hours
- */
-export const checkNewFavourites = functions
-  .runWith({ secrets: ["RESEND_API_KEY"], timeoutSeconds: 300 })
-  .pubsub.schedule("0 */4 * * *")
-  .timeZone("America/Bogota")
-  .onRun(async (context) => {
-    console.log("Checking for new favourites...");
-
-    // Check favourites from the last 4 hours
-    const fourHoursAgo = new Date();
-    fourHoursAgo.setHours(fourHoursAgo.getHours() - 4);
-
-    try {
-      const recentFavourites = await getDb()
-        .collection("favourites")
-        .where("created_at", ">", admin.firestore.Timestamp.fromDate(fourHoursAgo))
-        .get();
-
-      // Group by business
-      const businessFavourites = new Map<string, number>();
-
-      for (const doc of recentFavourites.docs) {
-        const businessId = doc.data().business_id;
-        if (businessId) {
-          businessFavourites.set(
-            businessId,
-            (businessFavourites.get(businessId) || 0) + 1
-          );
-        }
-      }
-
-      console.log(
-        `Found favourites for ${businessFavourites.size} businesses`
-      );
-
-      let sent = 0;
-
-      for (const [businessId, count] of businessFavourites) {
-        // Skip if recently notified
-        if (await wasRecentlySent(businessId, "new_favourite", 4)) {
-          continue;
-        }
-
-        if (!(await isEmailNotificationEnabled(businessId))) {
-          continue;
-        }
-
-        const business = await getBusinessInfo(businessId);
-        if (!business) continue;
-
-        const emailContent = getNewFavouriteEmail(business, {});
-
-        await sendBusinessNotification(
-          business,
-          "new_favourite",
-          emailContent,
-          { count }
-        );
-
-        sent++;
-      }
-
-      console.log(`New favourites check complete: ${sent} notifications sent`);
-      return null;
-    } catch (error) {
-      console.error("Error checking new favourites:", error);
-      return null;
-    }
-  });
-
-// ============================================================================
 // Alternative: Batch CTA clicks trigger
 // ============================================================================
 
 /**
  * Alternative approach: Scheduled check for CTA clicks
- * Schedule: Every 2 hours
+ * Schedule: Every 6 hours
  */
 export const checkCtaClicks = functions
   .runWith({ secrets: ["RESEND_API_KEY"], timeoutSeconds: 300 })
-  .pubsub.schedule("0 */2 * * *")
+  .pubsub.schedule("0 */6 * * *")
   .timeZone("America/Bogota")
   .onRun(async (context) => {
     console.log("Checking for CTA clicks...");
 
-    // Check clicks from the last 2 hours
-    const twoHoursAgo = new Date();
-    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+    // Check clicks from the last 6 hours
+    const sixHoursAgo = new Date();
+    sixHoursAgo.setHours(sixHoursAgo.getHours() - 6);
 
     try {
       const recentClicks = await getDb()
         .collection("analytics_events")
         .where("event_type", "==", "click")
-        .where("timestamp", ">", admin.firestore.Timestamp.fromDate(twoHoursAgo))
+        .where("timestamp", ">", Timestamp.fromDate(sixHoursAgo))
         .get();
 
       // Group by business, keep track of CTA types
@@ -291,7 +218,7 @@ export const checkCtaClicks = functions
 
       for (const [businessId, clicks] of businessClicks) {
         // Skip if recently notified
-        if (await wasRecentlySent(businessId, "cta_clicked", 2)) {
+        if (await wasRecentlySent(businessId, "cta_clicked", 6)) {
           continue;
         }
 
@@ -305,7 +232,7 @@ export const checkCtaClicks = functions
         // Use the most relevant CTA type
         const ctaType = (clicks.types.has("phone") ? "phone" :
           clicks.types.has("whatsapp") ? "whatsapp" :
-          clicks.types.has("website") ? "website" : "navigation") as
+            clicks.types.has("website") ? "website" : "navigation") as
           "phone" | "whatsapp" | "website" | "navigation";
 
         const emailContent = getCtaClickedEmail(business, { cta_type: ctaType });

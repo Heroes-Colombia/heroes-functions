@@ -15,6 +15,7 @@
 
 import { admin, getDb } from "../utils/firebase";
 import { Request, Response } from "express";
+import { FieldValue } from "firebase-admin/firestore"
 
 /**
  * Aggregate event counts from analytics_events collection
@@ -33,7 +34,7 @@ async function aggregateEventCounts(
   const counts = new Map<string, number>();
 
   events.docs.forEach((doc) => {
-    const promotionId = doc.data().promotion_id;
+    const promotionId = doc.data().entity_id;
     if (promotionId) {
       counts.set(promotionId, (counts.get(promotionId) || 0) + 1);
     }
@@ -168,13 +169,11 @@ export async function backfillAllCounts(
     // Aggregate all event types
     const viewCounts = await aggregateEventCounts("view");
     const saveCounts = await aggregateEventCounts("save");
-    const redemptionCounts = await aggregateEventCounts("redemption");
 
     // Get all unique promotion IDs
     const allPromotionIds = new Set([
       ...viewCounts.keys(),
       ...saveCounts.keys(),
-      ...redemptionCounts.keys(),
     ]);
 
     console.log(`Updating ${allPromotionIds.size} unique promotions...`);
@@ -202,8 +201,7 @@ export async function backfillAllCounts(
             {
               views_count: viewCounts.get(promotionId) || 0,
               saves_count: saveCounts.get(promotionId) || 0,
-              redemptions_count: redemptionCounts.get(promotionId) || 0,
-              updated_at: admin.firestore.FieldValue.serverTimestamp(),
+              updated_at: FieldValue.serverTimestamp(),
             },
             { merge: true }
           );

@@ -8,7 +8,8 @@
  */
 
 import * as functions from "firebase-functions/v1";
-import { admin, getDb } from "../utils/firebase";
+import { getDb } from "../utils/firebase";
+import { Timestamp } from "firebase-admin/firestore"
 import {
   generatePushContent,
   generateInAppContent,
@@ -37,9 +38,9 @@ interface CampaignDocument {
   campaign_type: CampaignType;
   content_category: ContentCategory;
   status: CampaignStatus;
-  created_at: admin.firestore.Timestamp;
-  updated_at: admin.firestore.Timestamp;
-  scheduled_for: admin.firestore.Timestamp;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  scheduled_for: Timestamp;
   content_sources: {
     top_promotions: string[];
     under_promoted: string[];
@@ -107,9 +108,9 @@ export const generatePushCampaign = functions
     const baseCampaignData = {
       campaign_type: "push" as const,
       content_category: category,
-      created_at: admin.firestore.Timestamp.now(),
-      updated_at: admin.firestore.Timestamp.now(),
-      scheduled_for: admin.firestore.Timestamp.fromDate(
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      scheduled_for: Timestamp.fromDate(
         new Date(date.getTime() + 2 * 60 * 60 * 1000) // 2 hours from now
       ),
       content_sources: {
@@ -159,7 +160,7 @@ export const generatePushCampaign = functions
         status: "failed" as CampaignStatus,
         generated_by: "claude" as const,
         error_message: error instanceof Error ? error.message : String(error),
-        failed_at: admin.firestore.Timestamp.now(),
+        failed_at: Timestamp.now(),
       };
 
       const campaignRef = await getDb().collection("campaigns").add(failedCampaignData);
@@ -203,9 +204,9 @@ export const generateInAppCampaign = functions
     const baseCampaignData = {
       campaign_type: "inapp" as const,
       content_category: category,
-      created_at: admin.firestore.Timestamp.now(),
-      updated_at: admin.firestore.Timestamp.now(),
-      scheduled_for: admin.firestore.Timestamp.fromDate(
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      scheduled_for: Timestamp.fromDate(
         new Date(date.getTime() + 2 * 60 * 60 * 1000)
       ),
       content_sources: {
@@ -259,7 +260,7 @@ export const generateInAppCampaign = functions
         status: "failed" as CampaignStatus,
         generated_by: "claude" as const,
         error_message: error instanceof Error ? error.message : String(error),
-        failed_at: admin.firestore.Timestamp.now(),
+        failed_at: Timestamp.now(),
       };
 
       const campaignRef = await getDb().collection("campaigns").add(failedCampaignData);
@@ -300,9 +301,9 @@ export const generateEmailCampaign = functions
     const baseCampaignData = {
       campaign_type: "email" as const,
       content_category: category,
-      created_at: admin.firestore.Timestamp.now(),
-      updated_at: admin.firestore.Timestamp.now(),
-      scheduled_for: admin.firestore.Timestamp.fromDate(
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      scheduled_for: Timestamp.fromDate(
         new Date(date.getTime() + 2 * 60 * 60 * 1000)
       ),
       content_sources: {
@@ -351,7 +352,7 @@ export const generateEmailCampaign = functions
         status: "failed" as CampaignStatus,
         generated_by: "claude" as const,
         error_message: error instanceof Error ? error.message : String(error),
-        failed_at: admin.firestore.Timestamp.now(),
+        failed_at: Timestamp.now(),
       };
 
       const campaignRef = await getDb().collection("campaigns").add(failedCampaignData);
@@ -410,9 +411,9 @@ export async function manuallyGenerateCampaign(
       campaign_type: campaignType,
       content_category: category,
       status: "pending_review",
-      created_at: admin.firestore.Timestamp.now(),
-      updated_at: admin.firestore.Timestamp.now(),
-      scheduled_for: admin.firestore.Timestamp.fromDate(
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      scheduled_for: Timestamp.fromDate(
         new Date(date.getTime() + 2 * 60 * 60 * 1000)
       ),
       content_sources: {

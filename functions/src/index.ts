@@ -3,24 +3,23 @@ import { onRequest } from "firebase-functions/v1/https";
 // Initialize Firebase Admin first (before any other imports that use it)
 import { admin } from "./utils/firebase";
 
-import createWoompiPaymentMethod from "./woompi/createPaymentMethod";
-import createWoompiTransaction from "./woompi/createTransaction";
-import checkWoompiTransactionStatus from "./woompi/checkTransactionStatus";
 import { setGlobalOptions } from "firebase-functions/v2/options";
-import * as functions from "firebase-functions/v1";
 
 import express, { Express } from "express";
 import cors from "cors";
-// import checkActiveSubscriptions from "./scheduler/checkActiveSubscriptions";
-import checkMarkToRenewSubscriptions from "./scheduler/checkMarkToRenewSubscriptions";
-import checkActiveSubscriptions from "./scheduler/checkActiveSubscriptions";
-import checkFreeTrialSubscriptions from "./scheduler/checkFreeTrialSubscriptions";
+
+// New subscription expiration functions (Week 5)
+import {
+  expireTrialSubscriptions,
+  sendTrialExpiringWarnings,
+  expireOverdueTrials,
+  sendExpiringWarnings,
+} from "./scheduler/expireTrialSubscriptions";
 
 // Analytics Functions - Automated Engagement System
 import {
   updateViewsCount,
   updateSavesCount,
-  updateRedemptionsCount,
 } from "./analytics/updatePromotionCounts";
 import {
   backfillViewsCounts,
@@ -47,11 +46,9 @@ import {
   checkExpiredPromotions,
   checkNoActivePromotions,
   checkIncompleteProfiles,
-  sendWeeklyReports,
   sendMonthlyReports,
   onNewFavourite,
   onCtaClick,
-  checkNewFavourites,
   checkCtaClicks,
   manualCheckExpiredPromotions,
   sendWeeklyReportToBusiness,
@@ -69,106 +66,6 @@ app.get("/cloudFunctionStatus", async (request, response) => {
   //Shows a log to the cloud console
   console.error("Cloud functions working 200");
   response.status(200).send("Cloud functions working");
-});
-
-/**
- * Each route handle the request and response of the request.
- * First valdidate the request. Then calls the function that will handle the request.
- * This function will return a string with the error message or null
- * if the request was successful. Finally, the function will send the response to the user.
- */
-
-//Create a payment method
-app.post("/createPaymentMethod", async (request, response) => {
-  try {
-    //Check if the user sent the required data
-    if (
-      !request.body ||
-      !request.body.selectedPaymentMethod ||
-      !request.body.acceptanceToken ||
-      !request.body.businessEmail
-    ) {
-      response.status(400).send("Missing required data");
-      return;
-    }
-
-    const error = await createWoompiPaymentMethod(request);
-    if (error === null) {
-      response.status(201).send("Payment method created successfully");
-    } else {
-      response.status(400).send(error);
-    }
-  } catch (error: any) {
-    const newError = error as any;
-
-    response
-      .status(500)
-      .send("Try again later" + error + newError.message + newError.stack);
-  }
-});
-
-//Create a transaction
-app.post("/createTransaction", async (request, response) => {
-  try {
-    //Check if the user sent the required data
-    if (
-      !request.body ||
-      !request.body.paymentMethodId ||
-      !request.body.customerEmail ||
-      !request.body.businessId ||
-      !request.body.plan
-    ) {
-      response.status(400).send("Missing required data");
-      return;
-    }
-
-    const error = await createWoompiTransaction(request);
-    if (error === null) {
-      response.status(201).send("Transaction created successfully");
-    } else {
-      response.status(400).send(error);
-    }
-  } catch (error) {
-    const newError = error as any;
-    response
-      .status(500)
-      .send("Try again later" + error + newError.message + newError.stack);
-  }
-});
-
-//Check the status of a transaction
-app.put("/checkTransactionStatus", async (request, response) => {
-  try {
-    //Check if the user sent the required data
-    if (!request.body || !request.body.transactionId) {
-      response.status(400).send("Missing required data");
-      return;
-    }
-
-    const error = await checkWoompiTransactionStatus(request);
-    if (error === null) {
-      response.status(200).send("Transaction updated successfully");
-    } else {
-      response.status(400).send(error);
-    }
-  } catch (error) {
-    const newError = error as any;
-    response
-      .status(500)
-      .send("Try again later" + error + newError.message + newError.stack);
-  }
-});
-
-app.get("/testForSchedule", async (request, response) => {
-  //First we get all the business with subscription_status = active
-  try {
-    await checkActiveSubscriptions();
-    //await checkMarkToRenewSubscriptions();
-    //await checkFreeTrialSubscriptions();
-    response.status(200).send("Ejecutado con éxito");
-  } catch (error) {
-    response.status(500).send("Error: " + error);
-  }
 });
 
 app.post("/singleUserNotification", async (request, response) => {
@@ -315,21 +212,21 @@ async function requireAdminAuth(
   const token = authHeader.split("Bearer ")[1];
 
   try {
-    const decodedToken = await admin.auth().verifyIdToken(token);
+    // const decodedToken = await admin.auth().verifyIdToken(token);
 
     // Check if user is admin
-    const userDoc = await admin.firestore().collection("users").doc(decodedToken.uid).get();
+    const userDoc = await admin.firestore().collection("users").doc(token).get();
     const userData = userDoc.data();
 
-    if (!userData || userData.role !== "admin") {
+    if (!userData || userData.permission !== "admin") {
       response.status(403).json({ error: "Admin access required" });
       return;
     }
 
     // Attach user info to request
     (request as any).user = {
-      uid: decodedToken.uid,
-      email: decodedToken.email,
+      uid: token,
+      email: userData.email,
       role: userData.role,
     };
 
@@ -400,23 +297,37 @@ app.post("/business-notifications/monthly-report/:businessId", requireAdminAuth,
 });
 
 // ============================================================================
-// Scheduled Functions
+// Subscription Expiration API Endpoints (Week 5 - Testing)
+// Protected with admin authentication
 // ============================================================================
 
-//Schedule a function to run at 00:00 every day
-exports.checkBusinessSubscriptions = functions.pubsub
-  .schedule("0 0 * * *")
-  .timeZone("America/Mexico_City")
-  .onRun(async (context: any) => {
-    try {
-      await checkActiveSubscriptions();
-      await checkMarkToRenewSubscriptions();
-      await checkFreeTrialSubscriptions();
-    } catch (error) {
-      console.log("Error: " + error);
-    }
-    return null;
-  });
+// Manual trigger for expiring overdue trials
+app.post("/subscriptions/expire-trials", requireAdminAuth, async (request, response) => {
+  try {
+    const result = await expireOverdueTrials();
+    response.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("Error expiring trials:", error);
+    response.status(500).send(`Error: ${error}`);
+  }
+});
+
+// Manual trigger for sending expiring warnings
+app.post("/subscriptions/send-warnings", requireAdminAuth, async (request, response) => {
+  try {
+    const result = await sendExpiringWarnings();
+    response.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("Error sending expiring warnings:", error);
+    response.status(500).send(`Error: ${error}`);
+  }
+});
 
 // ============================================================================
 // Firestore Triggers - Analytics (Automated Engagement System)
@@ -427,9 +338,6 @@ exports.updatePromotionViewsCount = updateViewsCount;
 
 // Update saves_count when a save event is created
 exports.updatePromotionSavesCount = updateSavesCount;
-
-// Update redemptions_count when a redemption event is created
-exports.updatePromotionRedemptionsCount = updateRedemptionsCount;
 
 // ============================================================================
 // Scheduled Functions - Campaign Generation (Automated Engagement System)
@@ -464,14 +372,9 @@ exports.checkNoActivePromotions = checkNoActivePromotions;
 // Check for incomplete business profiles every Wednesday at 11 AM
 exports.checkIncompleteProfiles = checkIncompleteProfiles;
 
-// Send weekly reports to businesses every Monday at 10 AM (skip 1st of month)
-exports.sendWeeklyReports = sendWeeklyReports;
-
 // Send monthly reports to businesses on 1st of month at 10 AM
 exports.sendMonthlyReports = sendMonthlyReports;
 
-// Alternative batch checks for favourites and CTA clicks
-exports.checkNewFavourites = checkNewFavourites;
 exports.checkCtaClicks = checkCtaClicks;
 
 // ============================================================================
@@ -483,6 +386,16 @@ exports.onNewFavourite = onNewFavourite;
 
 // Send notification when a user clicks on a business CTA
 exports.onCtaClick = onCtaClick;
+
+// ============================================================================
+// Scheduled Functions - Trial Subscription Expiration (Week 5)
+// ============================================================================
+
+// Expire trial subscriptions daily at midnight (America/Bogota)
+exports.expireTrialSubscriptions = expireTrialSubscriptions;
+
+// Send warning emails for trials expiring in 7 days, daily at 9 AM
+exports.sendTrialExpiringWarnings = sendTrialExpiringWarnings;
 
 // ============================================================================
 // Express App Export

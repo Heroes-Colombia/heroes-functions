@@ -15,15 +15,15 @@ export const EMAIL_FROM = "Heroes Colombia <noreply@heroescolombia.com>";
 export const EMAIL_REPLY_TO = "jonathan@heroescolombia.com";
 
 export const JONATHAN_SIGNATURE_HTML = `
-<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7e5;">
   <p style="margin: 0; font-weight: bold; color: #1a1a1a;">
     Jonathan González
   </p>
-  <p style="margin: 4px 0; color: #666; font-size: 14px;">
+  <p style="margin: 4px 0; color: #6b7280; font-size: 14px;">
     Director, Heroes Colombia
   </p>
   <p style="margin: 4px 0; font-size: 14px;">
-    <a href="mailto:jonathan@heroescolombia.com" style="color: #0066cc;">
+    <a href="mailto:jonathan@heroescolombia.com" style="color: #032291;">
       jonathan@heroescolombia.com
     </a>
   </p>
@@ -71,7 +71,6 @@ export interface ReportStats {
   views: number;
   saves: number;
   clicks: number;
-  redemptions: number;
 }
 
 export interface WeeklyReportData {
@@ -84,7 +83,6 @@ export interface MonthlyReportData {
   stats: ReportStats;
   previous_stats?: ReportStats;
   top_promotions: Array<{ title: string; views: number }>;
-  platform_update_html: string;
 }
 
 // ============================================================================
@@ -107,11 +105,11 @@ function wrapInEmailTemplate(content: string, preheader: string = ""): string {
   </style>
   <!--<![endif]-->
 </head>
-<body style="margin: 0; padding: 0; background: #f4f4f4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+<body style="margin: 0; padding: 0; background: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
   ${preheader ? `<div style="display: none; max-height: 0; overflow: hidden;">${preheader}</div>` : ""}
   <div class="container" style="max-width: 600px; margin: 0 auto; padding: 20px;">
     <!-- Header -->
-    <div style="background: #1a1a1a; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+    <div style="background: #5d7a3a; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
       <h1 style="margin: 0; color: white; font-size: 22px;">🇨🇴 Heroes Colombia</h1>
     </div>
 
@@ -123,11 +121,11 @@ function wrapInEmailTemplate(content: string, preheader: string = ""): string {
 
     <!-- Footer -->
     <div style="text-align: center; padding: 20px;">
-      <p style="color: #999; font-size: 12px; margin: 0;">
+      <p style="color: #6b7280; font-size: 12px; margin: 0;">
         Heroes Colombia - Honrando a quienes sirven 🇨🇴
       </p>
-      <p style="color: #999; font-size: 11px; margin: 10px 0 0 0;">
-        <a href="https://heroescolombia.com/business/settings" style="color: #999;">Configurar notificaciones</a>
+      <p style="color: #6b7280; font-size: 11px; margin: 10px 0 0 0;">
+        <a href="https://heroescolombia.com/business/settings" style="color: #032291;">Configurar notificaciones</a>
       </p>
     </div>
   </div>
@@ -152,25 +150,25 @@ export function getPromotionExpiredEmail(
   const subject = `${firstName}, tu promoción "${data.promotion_title}" expiró`;
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Te escribo porque noté que tu promoción <strong>"${data.promotion_title}"</strong>
       de <strong>${business.name}</strong> ha expirado.
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Sin promociones activas, los héroes no podrán ver tu negocio en la app.
       Te recomiendo renovarla o crear una nueva para seguir conectando con nuestra
       comunidad militar.
     </p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard/promotions"
-         style="display: inline-block; padding: 14px 28px; background: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Renovar Promoción
       </a>
     </div>
-    <p style="color: #666; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+    <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
       Si tienes alguna pregunta sobre cómo crear promociones más efectivas,
       no dudes en responder a este correo. Estoy aquí para ayudarte.
     </p>
@@ -190,28 +188,28 @@ export function getNoActivePromotionsEmail(
 ): { subject: string; html: string } {
   const firstName = business.owner_name.split(" ")[0];
 
-  const subject = `${firstName}, noté que no tienes promociones activas`;
+  const subject = `${firstName}, noté que no tienes promociones activas en Heroes`;
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Revisando los negocios en Heroes Colombia, vi que <strong>${business.name}</strong>
       actualmente no tiene promociones activas.
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Esto significa que los héroes no pueden encontrar tu negocio cuando buscan
       descuentos. Crear una promoción te tomará solo unos minutos y te ayudará
       a conectar con miles de militares que buscan apoyar negocios como el tuyo.
     </p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard/promotions"
-         style="display: inline-block; padding: 14px 28px; background: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Crear Promoción
       </a>
     </div>
-    <p style="color: #666; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+    <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
       ¿Necesitas ideas para tu primera promoción? Responde a este correo y te
       comparto algunas sugerencias que han funcionado bien para otros negocios.
     </p>
@@ -243,27 +241,27 @@ export function getIncompleteProfileEmail(
     .map((field) => missingFieldsSpanish[field] || field)
     .join(", ");
 
-  const subject = `${firstName}, vi que faltan algunos datos en tu perfil`;
+  const subject = `${firstName}, vi que faltan algunos datos en tu perfil de Heroes Colombia`;
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Estaba revisando el perfil de <strong>${business.name}</strong> y noté que
       falta información importante: <strong>${missingList}</strong>.
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Un perfil completo genera más confianza en los héroes y aumenta las
       probabilidades de que te contacten. Te tomará solo unos minutos completarlo.
     </p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard/settings"
-         style="display: inline-block; padding: 14px 28px; background: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Completar Perfil
       </a>
     </div>
-    <p style="color: #666; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+    <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
       Si necesitas ayuda con tu perfil o tienes alguna pregunta, responde a este
       correo y con gusto te ayudo.
     </p>
@@ -288,23 +286,23 @@ export function getNewFavouriteEmail(
   const subject = `¡Buenas noticias ${firstName}! Un héroe guardó a ${business.name}`;
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       ¡Excelente noticia! Un héroe${rankText} acaba de guardar a <strong>${business.name}</strong>
       en sus favoritos.
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Esto significa que le gustó lo que vio y quiere poder encontrar tu negocio
       fácilmente en el futuro. Es una señal de que estás haciendo las cosas bien. 💪
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Sigue así - cada favorito es un potencial cliente leal.
     </p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard"
-         style="display: inline-block; padding: 14px 28px; background: #22c55e; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #7fa64e; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Ver Mi Dashboard
       </a>
     </div>
@@ -352,20 +350,20 @@ export function getCtaClickedEmail(
   const subject = `${firstName}, un héroe acaba de ${action}`;
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       ¡Buenas noticias! Un héroe acaba de dar clic para <strong>${action}</strong>
       desde la app de Heroes Colombia.
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Esto significa que tu presencia en la plataforma está funcionando.
       ${tip}
     </p>
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard"
-         style="display: inline-block; padding: 14px 28px; background: #22c55e; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #7fa64e; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Ver Estadísticas
       </a>
     </div>
@@ -392,13 +390,12 @@ export function getWeeklyReportEmail(
   let statsHtml = "";
   if (hasActivity) {
     statsHtml = `
-      <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <div style="background: #f5f7f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h3 style="margin: 0 0 15px 0; color: #1a1a1a; font-size: 18px;">📊 Esta semana</h3>
         <table style="width: 100%; border-collapse: collapse;">
-          ${data.stats.views > 0 ? `<tr><td style="padding: 8px 0; color: #333;">👁️ Vistas de promociones</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.views}</td></tr>` : ""}
-          ${data.stats.saves > 0 ? `<tr><td style="padding: 8px 0; color: #333;">⭐ Guardados en favoritos</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.saves}</td></tr>` : ""}
-          ${data.stats.clicks > 0 ? `<tr><td style="padding: 8px 0; color: #333;">📱 Clics en CTAs</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.clicks}</td></tr>` : ""}
-          ${data.stats.redemptions > 0 ? `<tr><td style="padding: 8px 0; color: #333;">✅ Promociones redimidas</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #22c55e;">${data.stats.redemptions}</td></tr>` : ""}
+          ${data.stats.views > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">👁️ Vistas de promociones</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.views}</td></tr>` : ""}
+          ${data.stats.saves > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">⭐ Guardados en favoritos</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.saves}</td></tr>` : ""}
+          ${data.stats.clicks > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">📱 Clics en CTAs</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.clicks}</td></tr>` : ""}
         </table>
       </div>
     `;
@@ -407,7 +404,7 @@ export function getWeeklyReportEmail(
       statsHtml += `
         <div style="margin: 20px 0;">
           <h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 16px;">🏆 Promociones más vistas</h4>
-          <ul style="margin: 0; padding-left: 20px; color: #333;">
+          <ul style="margin: 0; padding-left: 20px; color: #1a1a1a;">
             ${data.top_promotions.map((p) => `<li style="margin: 5px 0;">${p.title} (${p.views} vistas)</li>`).join("")}
           </ul>
         </div>
@@ -416,25 +413,25 @@ export function getWeeklyReportEmail(
   }
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Aquí está tu resumen semanal de <strong>${business.name}</strong> en Heroes Colombia.
     </p>
     ${hasActivity ? statsHtml : `
-    <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Esta semana no hubo actividad en tu negocio. Te recomiendo revisar tus promociones
       y asegurarte de que estén activas y sean atractivas para los héroes.
     </p>
     `}
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard"
-         style="display: inline-block; padding: 14px 28px; background: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Ver Dashboard Completo
       </a>
     </div>
-    <p style="color: #666; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+    <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
       ¿Quieres mejorar tus resultados? Responde a este correo y te comparto algunos tips.
     </p>
   `;
@@ -461,13 +458,12 @@ export function getMonthlyReportEmail(
   let statsHtml = "";
   if (hasActivity) {
     statsHtml = `
-      <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <div style="background: #f5f7f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <h3 style="margin: 0 0 15px 0; color: #1a1a1a; font-size: 18px;">📊 Resumen de ${monthName}</h3>
         <table style="width: 100%; border-collapse: collapse;">
-          ${data.stats.views > 0 ? `<tr><td style="padding: 8px 0; color: #333;">👁️ Vistas totales</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.views}</td></tr>` : ""}
-          ${data.stats.saves > 0 ? `<tr><td style="padding: 8px 0; color: #333;">⭐ Nuevos favoritos</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.saves}</td></tr>` : ""}
-          ${data.stats.clicks > 0 ? `<tr><td style="padding: 8px 0; color: #333;">📱 Interacciones (clics)</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #0066cc;">${data.stats.clicks}</td></tr>` : ""}
-          ${data.stats.redemptions > 0 ? `<tr><td style="padding: 8px 0; color: #333;">✅ Promociones usadas</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #22c55e;">${data.stats.redemptions}</td></tr>` : ""}
+          ${data.stats.views > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">👁️ Vistas totales</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.views}</td></tr>` : ""}
+          ${data.stats.saves > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">⭐ Nuevos favoritos</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.saves}</td></tr>` : ""}
+          ${data.stats.clicks > 0 ? `<tr><td style="padding: 8px 0; color: #1a1a1a;">📱 Interacciones (clics)</td><td style="padding: 8px 0; text-align: right; font-weight: bold; color: #5d7a3a;">${data.stats.clicks}</td></tr>` : ""}
         </table>
       </div>
     `;
@@ -476,7 +472,7 @@ export function getMonthlyReportEmail(
       statsHtml += `
         <div style="margin: 20px 0;">
           <h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 16px;">🏆 Tus promociones más populares</h4>
-          <ul style="margin: 0; padding-left: 20px; color: #333;">
+          <ul style="margin: 0; padding-left: 20px; color: #1a1a1a;">
             ${data.top_promotions.map((p) => `<li style="margin: 5px 0;">${p.title} (${p.views} vistas)</li>`).join("")}
           </ul>
         </div>
@@ -485,29 +481,26 @@ export function getMonthlyReportEmail(
   }
 
   const content = `
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
-    <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Aquí está tu reporte mensual de <strong>${business.name}</strong> en Heroes Colombia.
     </p>
     ${hasActivity ? statsHtml : `
-    <p style="color: #666; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+    <p style="color: #6b7280; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Este mes no registramos actividad en tu negocio. Te invito a revisar tus promociones
       y asegurarte de que estén activas. Recuerda que los héroes buscan descuentos constantemente.
     </p>
     `}
 
-    <!-- Platform Update -->
-    ${data.platform_update_html}
-
     <div style="text-align: center; margin: 30px 0;">
       <a href="https://heroescolombia.com/business/dashboard"
-         style="display: inline-block; padding: 14px 28px; background: #0066cc; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+         style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
         Ver Mi Dashboard
       </a>
     </div>
-    <p style="color: #666; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+    <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
       ¿Tienes preguntas o sugerencias? Me encantaría escucharte - solo responde a este correo.
     </p>
   `;

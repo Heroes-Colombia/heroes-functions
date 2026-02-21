@@ -18,123 +18,6 @@ import {
   getWeeklyReportEmail,
   getMonthlyReportEmail,
 } from "./emailTemplates";
-import { generatePlatformUpdate } from "../campaigns/helpers/claudeApi";
-
-// ============================================================================
-// Weekly Report
-// ============================================================================
-
-/**
- * Send weekly performance report to all active businesses
- * Schedule: Mondays at 10 AM Colombia time
- * Skip if it's the 1st of the month (monthly report takes precedence)
- */
-export const sendWeeklyReports = functions
-  .runWith({
-    secrets: ["RESEND_API_KEY"],
-    timeoutSeconds: 540, // 9 minutes for processing all businesses
-    memory: "512MB",
-  })
-  .pubsub.schedule("0 10 * * 1")
-  .timeZone("America/Bogota")
-  .onRun(async (context) => {
-    const today = new Date();
-
-    // Skip if it's the 1st of the month (monthly report day)
-    if (today.getDate() === 1) {
-      console.log("Skipping weekly report - monthly report day");
-      return null;
-    }
-
-    console.log("Starting weekly reports...");
-
-    try {
-      const businesses = await getActiveBusinesses();
-      console.log(`Sending weekly reports to ${businesses.length} businesses`);
-
-      // Calculate date range (last 7 days)
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
-
-      let sent = 0;
-      let skipped = 0;
-
-      // Process businesses in parallel batches for better performance
-      const BATCH_SIZE = 10;
-
-      for (let i = 0; i < businesses.length; i += BATCH_SIZE) {
-        const batch = businesses.slice(i, i + BATCH_SIZE);
-
-        const results = await Promise.all(
-          batch.map(async (business) => {
-            // Check if email notifications are enabled
-            if (!(await isEmailNotificationEnabled(business.id))) {
-              return { success: false, reason: "disabled" };
-            }
-
-            try {
-              // Get business stats for the week
-              const stats = await getBusinessStats(business.id, startDate, endDate);
-
-              const emailContent = getWeeklyReportEmail(business, {
-                stats: {
-                  views: stats.views,
-                  saves: stats.saves,
-                  clicks: stats.clicks,
-                  redemptions: stats.redemptions,
-                },
-                top_promotions: stats.topPromotions,
-              });
-
-              const result = await sendBusinessNotification(
-                business,
-                "weekly_report",
-                emailContent,
-                {
-                  period: "weekly",
-                  stats: {
-                    views: stats.views,
-                    saves: stats.saves,
-                    clicks: stats.clicks,
-                    redemptions: stats.redemptions,
-                  },
-                }
-              );
-
-              return result;
-            } catch (error) {
-              console.error(
-                `Error sending weekly report to ${business.id}:`,
-                error
-              );
-              return { success: false, reason: "error" };
-            }
-          })
-        );
-
-        // Count results
-        for (const result of results) {
-          if (result.success) {
-            sent++;
-          } else {
-            skipped++;
-          }
-        }
-
-        // Rate limiting between batches
-        if (i + BATCH_SIZE < businesses.length) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      }
-
-      console.log(`Weekly reports complete: ${sent} sent, ${skipped} skipped`);
-      return null;
-    } catch (error) {
-      console.error("Error sending weekly reports:", error);
-      throw error;
-    }
-  });
 
 // ============================================================================
 // Monthly Report
@@ -159,17 +42,6 @@ export const sendMonthlyReports = functions
     try {
       const businesses = await getActiveBusinesses();
       console.log(`Sending monthly reports to ${businesses.length} businesses`);
-
-      // Generate platform update once for all reports
-      let platformUpdateHtml: string;
-      try {
-        platformUpdateHtml = await generatePlatformUpdate();
-        console.log("Platform update generated successfully");
-      } catch (error) {
-        console.error("Error generating platform update:", error);
-        // Use fallback if Claude fails
-        platformUpdateHtml = getFallbackPlatformUpdate();
-      }
 
       // Calculate date range (last 30 days / previous month)
       const endDate = new Date();
@@ -201,10 +73,8 @@ export const sendMonthlyReports = functions
                   views: stats.views,
                   saves: stats.saves,
                   clicks: stats.clicks,
-                  redemptions: stats.redemptions,
                 },
                 top_promotions: stats.topPromotions,
-                platform_update_html: platformUpdateHtml,
               });
 
               const result = await sendBusinessNotification(
@@ -217,9 +87,7 @@ export const sendMonthlyReports = functions
                     views: stats.views,
                     saves: stats.saves,
                     clicks: stats.clicks,
-                    redemptions: stats.redemptions,
                   },
-                  platform_update_html: platformUpdateHtml,
                 }
               );
 
@@ -258,32 +126,6 @@ export const sendMonthlyReports = functions
   });
 
 // ============================================================================
-// Helpers
-// ============================================================================
-
-/**
- * Fallback platform update if Claude API fails
- */
-function getFallbackPlatformUpdate(): string {
-  const month = new Date().toLocaleDateString("es-CO", { month: "long" });
-
-  return `
-    <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-      <h3 style="margin: 0 0 10px 0; color: #1a1a1a;">📈 Actualización de Heroes Colombia</h3>
-      <p style="color: #333; line-height: 1.6;">
-        Este ${month} seguimos creciendo como comunidad. Más héroes están descubriendo
-        negocios como el tuyo, y más empresarios se están uniendo a nuestra misión
-        de honrar a quienes sirven a Colombia.
-      </p>
-      <p style="color: #333; line-height: 1.6;">
-        Gracias por ser parte de Heroes Colombia. Si tienes ideas o sugerencias,
-        responde a este correo - me encantaría escucharte. 🇨🇴
-      </p>
-    </div>
-  `;
-}
-
-// ============================================================================
 // Manual Trigger Helpers (for testing)
 // ============================================================================
 
@@ -311,7 +153,6 @@ export async function sendWeeklyReportToBusiness(
       views: stats.views,
       saves: stats.saves,
       clicks: stats.clicks,
-      redemptions: stats.redemptions,
     },
     top_promotions: stats.topPromotions,
   });
@@ -326,7 +167,6 @@ export async function sendWeeklyReportToBusiness(
         views: stats.views,
         saves: stats.saves,
         clicks: stats.clicks,
-        redemptions: stats.redemptions,
       },
     }
   );
@@ -353,22 +193,13 @@ export async function sendMonthlyReportToBusiness(
 
   const stats = await getBusinessStats(businessId, startDate, endDate);
 
-  let platformUpdateHtml: string;
-  try {
-    platformUpdateHtml = await generatePlatformUpdate();
-  } catch (error) {
-    platformUpdateHtml = getFallbackPlatformUpdate();
-  }
-
   const emailContent = getMonthlyReportEmail(business, {
     stats: {
       views: stats.views,
       saves: stats.saves,
       clicks: stats.clicks,
-      redemptions: stats.redemptions,
     },
     top_promotions: stats.topPromotions,
-    platform_update_html: platformUpdateHtml,
   });
 
   const result = await sendBusinessNotification(
@@ -381,7 +212,6 @@ export async function sendMonthlyReportToBusiness(
         views: stats.views,
         saves: stats.saves,
         clicks: stats.clicks,
-        redemptions: stats.redemptions,
       },
     }
   );

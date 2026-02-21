@@ -7,7 +7,8 @@
  * Part of the Automated Engagement System - Part B (Phase 5)
  */
 
-import { admin, getDb } from "../utils/firebase";
+import { getDb } from "../utils/firebase";
+import { Timestamp, FieldValue } from "firebase-admin/firestore"
 import { Resend } from "resend";
 import {
   EMAIL_FROM,
@@ -29,8 +30,8 @@ export interface BusinessNotificationRecord {
     subject: string;
     body_html: string;
   };
-  created_at: admin.firestore.Timestamp;
-  sent_at?: admin.firestore.Timestamp;
+  created_at: Timestamp;
+  sent_at?: Timestamp;
   error_message?: string;
   recipient_email: string;
   owner_name: string;
@@ -69,7 +70,7 @@ export async function wasRecentlySent(
     .where("business_id", "==", businessId)
     .where("notification_type", "==", notificationType)
     .where("status", "==", "sent")
-    .where("sent_at", ">", admin.firestore.Timestamp.fromDate(cutoffTime))
+    .where("sent_at", ">", Timestamp.fromDate(cutoffTime))
     .limit(1)
     .get();
 
@@ -106,8 +107,8 @@ export async function getBusinessInfo(
   let ownerName = data.owner_name || data.contact_name || "Empresario";
 
   // If no email on business, try to find the owner user
-  if (!ownerEmail && data.owner_id) {
-    const userDoc = await getDb().collection("users").doc(data.owner_id).get();
+  if (!ownerEmail && data.owner_uid) {
+    const userDoc = await getDb().collection("users").doc(data.owner_uid).get();
     if (userDoc.exists) {
       const userData = userDoc.data()!;
       ownerEmail = userData.email;
@@ -150,7 +151,7 @@ export async function sendBusinessNotification(
       subject: emailContent.subject,
       body_html: emailContent.html,
     },
-    created_at: admin.firestore.Timestamp.now(),
+    created_at: Timestamp.now(),
     recipient_email: business.owner_email,
     owner_name: business.owner_name,
     business_name: business.name,
@@ -174,7 +175,7 @@ export async function sendBusinessNotification(
     // Update notification as sent
     await notificationRef.update({
       status: "sent",
-      sent_at: admin.firestore.FieldValue.serverTimestamp(),
+      sent_at: FieldValue.serverTimestamp(),
     });
 
     console.log(
@@ -212,7 +213,7 @@ export async function sendBusinessNotification(
 export async function getActiveBusinesses(): Promise<BusinessInfo[]> {
   const businessesSnapshot = await getDb()
     .collection("businesses")
-    .where("subscription_status", "in", ["active", "free_trial"])
+    .where("subscription.status", "in", ["active", "trial"])
     .get();
 
   const businesses: BusinessInfo[] = [];
@@ -238,11 +239,10 @@ export async function getBusinessStats(
   views: number;
   saves: number;
   clicks: number;
-  redemptions: number;
   topPromotions: Array<{ title: string; views: number }>;
 }> {
-  const startTimestamp = admin.firestore.Timestamp.fromDate(startDate);
-  const endTimestamp = admin.firestore.Timestamp.fromDate(endDate);
+  const startTimestamp = Timestamp.fromDate(startDate);
+  const endTimestamp = Timestamp.fromDate(endDate);
 
   // Get analytics events for this business
   const eventsSnapshot = await getDb()
@@ -255,7 +255,6 @@ export async function getBusinessStats(
   let views = 0;
   let saves = 0;
   let clicks = 0;
-  let redemptions = 0;
   const promotionViews = new Map<string, number>();
 
   for (const doc of eventsSnapshot.docs) {
@@ -277,9 +276,6 @@ export async function getBusinessStats(
       case "click":
         clicks++;
         break;
-      case "redemption":
-        redemptions++;
-        break;
     }
   }
 
@@ -300,7 +296,7 @@ export async function getBusinessStats(
     }
   }
 
-  return { views, saves, clicks, redemptions, topPromotions };
+  return { views, saves, clicks, topPromotions };
 }
 
 /**
@@ -352,7 +348,7 @@ export async function getExpiredPromotions(
   businessId: string,
   since: Date
 ): Promise<Array<{ id: string; title: string }>> {
-  const sinceTimestamp = admin.firestore.Timestamp.fromDate(since);
+  const sinceTimestamp = Timestamp.fromDate(since);
 
   const expiredSnapshot = await getDb()
     .collection("promotions")

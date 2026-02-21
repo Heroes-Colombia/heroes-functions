@@ -26,7 +26,7 @@ export const updateViewsCount = functions.firestore
       return null;
     }
 
-    const promotionId = event.promotion_id;
+    const promotionId = event.entity_id;
     if (!promotionId) {
       console.warn("View event missing promotion_id:", context.params.eventId);
       return null;
@@ -71,7 +71,7 @@ export const updateSavesCount = functions.firestore
       return null;
     }
 
-    const promotionId = event.promotion_id;
+    const promotionId = event.entity_id;
     if (!promotionId) {
       console.warn("Save event missing promotion_id:", context.params.eventId);
       return null;
@@ -96,51 +96,6 @@ export const updateSavesCount = functions.firestore
       return null;
     } catch (error) {
       console.error("Error updating saves_count:", error);
-      return null;
-    }
-  });
-
-/**
- * Updates redemptions_count on a promotion when a "redemption" analytics event is created
- *
- * Triggered by: analytics_events collection document creation
- * Condition: event_type === "redemption" AND entity_type === "promotion"
- */
-export const updateRedemptionsCount = functions.firestore
-  .document("analytics_events/{eventId}")
-  .onCreate(async (snap, context) => {
-    const event = snap.data();
-
-    // Only process promotion redemption events
-    if (event.event_type !== "redemption" || event.entity_type !== "promotion") {
-      return null;
-    }
-
-    const promotionId = event.promotion_id;
-    if (!promotionId) {
-      console.warn("Redemption event missing promotion_id:", context.params.eventId);
-      return null;
-    }
-
-    try {
-      const promotionRef = getDb().collection("promotions").doc(promotionId);
-
-      // Check if promotion exists before updating
-      const promotionDoc = await promotionRef.get();
-      if (!promotionDoc.exists) {
-        console.warn("Promotion not found for redemption event:", promotionId);
-        return null;
-      }
-
-      await promotionRef.update({
-        redemptions_count: admin.firestore.FieldValue.increment(1),
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      console.log(`Updated redemptions_count for promotion: ${promotionId}`);
-      return null;
-    } catch (error) {
-      console.error("Error updating redemptions_count:", error);
       return null;
     }
   });

@@ -8,7 +8,8 @@
  */
 
 import * as functions from "firebase-functions/v1";
-import { admin, getDb } from "../utils/firebase";
+import { getDb } from "../utils/firebase";
+import { Timestamp } from "firebase-admin/firestore"
 import {
   getBusinessInfo,
   sendBusinessNotification,
@@ -49,7 +50,7 @@ export const checkExpiredPromotions = functions
       const expiredPromosSnapshot = await getDb()
         .collection("promotions")
         .where("status", "==", "expired")
-        .where("expired_at", ">", admin.firestore.Timestamp.fromDate(yesterday))
+        .where("expired_at", ">", Timestamp.fromDate(yesterday))
         .get();
 
       // Group by business
@@ -278,7 +279,7 @@ export async function manualCheckExpiredPromotions(): Promise<{
   const expiredPromosSnapshot = await getDb()
     .collection("promotions")
     .where("status", "==", "expired")
-    .where("expired_at", ">", admin.firestore.Timestamp.fromDate(yesterday))
+    .where("expired_at", ">", Timestamp.fromDate(yesterday))
     .get();
 
   const businessPromotions = new Map<

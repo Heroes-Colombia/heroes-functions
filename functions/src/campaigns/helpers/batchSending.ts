@@ -10,6 +10,7 @@
 import { admin, getDb } from "../../utils/firebase";
 import { Resend } from "resend";
 import { PushContent, EmailContent } from "./claudeApi";
+import { Timestamp, FieldValue } from "firebase-admin/firestore"
 
 // ============================================================================
 // Types
@@ -188,7 +189,7 @@ export async function sendPushNotifications(
 
       console.log(
         `Batch ${Math.floor(i / FCM_BATCH_SIZE) + 1}: ` +
-          `${response.successCount} sent, ${response.failureCount} failed`
+        `${response.successCount} sent, ${response.failureCount} failed`
       );
     } catch (error) {
       console.error(`Error sending push batch:`, error);
@@ -409,8 +410,8 @@ export async function sendEmailCampaign(
 
     console.log(
       `Email batch ${Math.floor(i / EMAIL_BATCH_SIZE) + 1}: ` +
-        `${results.filter((r) => r.success).length} sent, ` +
-        `${results.filter((r) => !r.success).length} failed`
+      `${results.filter((r) => r.success).length} sent, ` +
+      `${results.filter((r) => !r.success).length} failed`
     );
 
     // Rate limiting - wait between batches
@@ -453,7 +454,7 @@ export async function configureInAppMessage(
     button_text: content.button_text,
     button_action: content.button_action,
     created_at: admin.firestore.FieldValue.serverTimestamp(),
-    expires_at: admin.firestore.Timestamp.fromDate(expiresAt),
+    expires_at: Timestamp.fromDate(expiresAt),
     active: true,
   });
 
@@ -570,10 +571,10 @@ export async function cleanupInvalidTokens(
 
       for (const doc of usersWithToken.docs) {
         await doc.ref.update({
-          notification_token: admin.firestore.FieldValue.delete(),
+          notification_token: FieldValue.delete(),
           notification_token_invalid: true,
           notification_token_invalid_at:
-            admin.firestore.FieldValue.serverTimestamp(),
+            FieldValue.serverTimestamp(),
         });
         cleaned++;
       }

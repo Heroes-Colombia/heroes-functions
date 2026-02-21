@@ -17,7 +17,6 @@ export {
 
 // Weekly/Monthly Reports
 export {
-  sendWeeklyReports,
   sendMonthlyReports,
   sendWeeklyReportToBusiness,
   sendMonthlyReportToBusiness,
@@ -27,7 +26,6 @@ export {
 export {
   onNewFavourite,
   onCtaClick,
-  checkNewFavourites,
   checkCtaClicks,
 } from "./eventTriggers";
 

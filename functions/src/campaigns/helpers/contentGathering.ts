@@ -7,7 +7,8 @@
  * Part of the Automated Engagement System - Part A
  */
 
-import { admin, getDb } from "../../utils/firebase";
+import { getDb } from "../../utils/firebase";
+import { Timestamp } from "firebase-admin/firestore"
 import { ContentContext } from "./claudeApi";
 
 // ============================================================================
@@ -31,7 +32,7 @@ interface BusinessData {
   name: string;
   categories: string[];
   plan: string;
-  created_at: admin.firestore.Timestamp;
+  created_at: Timestamp;
 }
 
 // ============================================================================
@@ -101,7 +102,7 @@ async function getTopPromotionsByViews(limit: number): Promise<PromotionData[]> 
       .collection("analytics_events")
       .where("event_type", "==", "view")
       .where("entity_type", "==", "promotion")
-      .where("timestamp", ">", admin.firestore.Timestamp.fromDate(twoDaysAgo))
+      .where("timestamp", ">", Timestamp.fromDate(twoDaysAgo))
       .get();
 
     // Aggregate views by promotion_id
@@ -152,7 +153,7 @@ async function getUnderPromotedPromotions(limit: number): Promise<PromotionData[
       .collection("analytics_events")
       .where("event_type", "==", "view")
       .where("entity_type", "==", "promotion")
-      .where("timestamp", ">", admin.firestore.Timestamp.fromDate(oneWeekAgo))
+      .where("timestamp", ">", Timestamp.fromDate(oneWeekAgo))
       .get();
 
     const viewCounts = new Map<string, number>();
@@ -316,7 +317,7 @@ async function getNewBusinesses(daysAgo: number): Promise<BusinessData[]> {
     const businesses = await getDb()
       .collection("businesses")
       .where("status", "==", "active")
-      .where("created_at", ">", admin.firestore.Timestamp.fromDate(cutoffDate))
+      .where("created_at", ">", Timestamp.fromDate(cutoffDate))
       .orderBy("created_at", "desc")
       .limit(10)
       .get();

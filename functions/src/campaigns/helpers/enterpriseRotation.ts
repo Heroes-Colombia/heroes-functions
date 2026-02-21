@@ -7,7 +7,8 @@
  * Part of the Automated Engagement System - Part A
  */
 
-import { admin, getDb } from "../../utils/firebase";
+import { getDb } from "../../utils/firebase";
+import { Timestamp } from "firebase-admin/firestore"
 
 // ============================================================================
 // Types
@@ -16,12 +17,12 @@ import { admin, getDb } from "../../utils/firebase";
 interface EnterpriseRotationData {
   businesses: {
     [businessId: string]: {
-      last_featured_at: admin.firestore.Timestamp | null;
+      last_featured_at: Timestamp | null;
       feature_count: number;
       last_campaign_id: string | null;
     };
   };
-  updated_at: admin.firestore.Timestamp;
+  updated_at: Timestamp;
 }
 
 interface BusinessForRotation {
@@ -124,7 +125,7 @@ export async function updateEnterpriseRotation(
       rotationData = (rotationDoc.data() as EnterpriseRotationData).businesses || {};
     }
 
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
 
     // Update each featured business
     for (const businessId of businessIds) {
@@ -226,7 +227,7 @@ export async function resetRotationData(): Promise<void> {
 
     await rotationRef.set({
       businesses: {},
-      updated_at: admin.firestore.Timestamp.now(),
+      updated_at: Timestamp.now(),
     });
 
     console.log("Enterprise rotation data reset");
