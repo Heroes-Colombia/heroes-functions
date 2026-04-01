@@ -2,7 +2,7 @@
  * Content Gathering Helpers for Campaign Generation
  *
  * These functions query Firestore to gather data needed for
- * generating campaign content with Claude.
+ * generating campaign content with Gemini.
  *
  * Part of the Automated Engagement System - Part A
  */

@@ -384,28 +384,40 @@ export const sendWeeklyReports = functions
       let skipped = 0;
       let errors = 0;
 
-      for (const business of businesses) {
-        if (!(await isEmailNotificationEnabled(business.id))) {
-          skipped++;
-          continue;
+      const BATCH_SIZE = 10;
+
+      for (let i = 0; i < businesses.length; i += BATCH_SIZE) {
+        const batch = businesses.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.all(
+          batch.map(async (business) => {
+            if (!(await isEmailNotificationEnabled(business.id))) {
+              return "skipped";
+            }
+
+            // 6-day cooldown to prevent duplicate sends within same week
+            if (await wasRecentlySent(business.id, "weekly_report", 144)) {
+              return "skipped";
+            }
+
+            try {
+              const result = await _sendWeeklyReport(business.id);
+              return result.success ? "sent" : "skipped";
+            } catch (err) {
+              console.error(`Error sending weekly report to ${business.id}:`, err);
+              return "error";
+            }
+          })
+        );
+
+        for (const status of results) {
+          if (status === "sent") sent++;
+          else if (status === "error") errors++;
+          else skipped++;
         }
 
-        // 6-day cooldown to prevent duplicate sends within same week
-        if (await wasRecentlySent(business.id, "weekly_report", 144)) {
-          skipped++;
-          continue;
-        }
-
-        try {
-          const result = await _sendWeeklyReport(business.id);
-          if (result.success) {
-            sent++;
-          } else {
-            skipped++;
-          }
-        } catch (err) {
-          console.error(`Error sending weekly report to ${business.id}:`, err);
-          errors++;
+        if (i + BATCH_SIZE < businesses.length) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
 

@@ -1,7 +1,7 @@
 /**
  * Campaign Generation Functions
  *
- * Scheduled functions that generate campaign content using Claude API
+ * Scheduled functions that generate campaign content using Gemini
  * and save to Firestore for admin review.
  *
  * Part of the Automated Engagement System - Part A
@@ -10,6 +10,7 @@
 import * as functions from "firebase-functions/v1";
 import { getDb } from "../utils/firebase";
 import { Timestamp } from "firebase-admin/firestore"
+import { Resend } from "resend";
 import {
   generatePushContent,
   generateInAppContent,
@@ -24,6 +25,69 @@ import {
 } from "./helpers/claudeApi";
 import { gatherCampaignContent, getBestFeaturedImage } from "./helpers/contentGathering";
 import { getEnterpriseBusinessesToFeature } from "./helpers/enterpriseRotation";
+
+// ============================================================================
+// Admin Notification
+// ============================================================================
+
+const ADMIN_EMAIL = "jonathan@heroescolombia.com";
+const EMAIL_FROM = "Heroes Colombia <noreply@heroescolombia.com>";
+
+async function sendCampaignApprovalEmail(
+  campaignId: string,
+  campaignType: "push" | "inapp" | "email",
+  category: string,
+  tone: string
+): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn("RESEND_API_KEY not set — skipping approval email");
+    return;
+  }
+
+  const typeLabels: Record<string, string> = {
+    push: "Push Notification",
+    inapp: "In-App Message",
+    email: "Email",
+  };
+
+  const resend = new Resend(apiKey);
+
+  await resend.emails.send({
+    from: EMAIL_FROM,
+    to: ADMIN_EMAIL,
+    subject: `[Heroes Colombia] Nueva campaña lista para aprobar: ${typeLabels[campaignType]}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #032291;">Nueva campaña generada ✅</h2>
+        <p>Se generó automáticamente una nueva campaña y está esperando tu aprobación.</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+          <tr>
+            <td style="padding: 8px; font-weight: bold; color: #6b7280;">Tipo</td>
+            <td style="padding: 8px;">${typeLabels[campaignType]}</td>
+          </tr>
+          <tr style="background: #f9fafb;">
+            <td style="padding: 8px; font-weight: bold; color: #6b7280;">Categoría</td>
+            <td style="padding: 8px;">${category}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px; font-weight: bold; color: #6b7280;">Tono</td>
+            <td style="padding: 8px;">${tone}</td>
+          </tr>
+          <tr style="background: #f9fafb;">
+            <td style="padding: 8px; font-weight: bold; color: #6b7280;">ID de campaña</td>
+            <td style="padding: 8px; font-family: monospace;">${campaignId}</td>
+          </tr>
+        </table>
+        <p style="color: #6b7280; font-size: 14px;">
+          Revisa la campaña en el panel de administración y apruébala para que se envíe.
+        </p>
+      </div>
+    `,
+  });
+
+  console.log(`Campaign approval email sent for campaign ${campaignId}`);
+}
 
 // ============================================================================
 // Types
@@ -48,8 +112,8 @@ interface CampaignDocument {
     new_businesses: string[];
     categories: string[];
   };
-  generated_by: "claude" | "manual";
-  claude_model: string;
+  generated_by: "gemini" | "manual";
+  gemini_model: string;
   tone: Tone;
   generation_prompt?: string;
   push_content?: PushContent;
@@ -82,7 +146,7 @@ interface CampaignDocument {
  * Cron: 0 8 *\/2 * * (every 2 days)
  */
 export const generatePushCampaign = functions
-  .runWith({ secrets: ["CLAUDE_API_KEY"] })
+  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
   .pubsub.schedule("0 8 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31 * *")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
@@ -120,7 +184,7 @@ export const generatePushCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      claude_model: "claude-sonnet-4-20250514",
+      gemini_model: "gemini-2.0-flash",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -135,14 +199,14 @@ export const generatePushCampaign = functions
     };
 
     try {
-      // Generate content with Claude
+      // Generate content with Gemini
       const pushContent = await generatePushContent(contextWithOccasion, category, tone);
 
       // Create campaign document with generated content
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "claude",
+        generated_by: "gemini",
         push_content: pushContent,
       };
 
@@ -150,15 +214,17 @@ export const generatePushCampaign = functions
       const campaignRef = await getDb().collection("campaigns").add(campaignData);
       console.log(`Push campaign created: ${campaignRef.id}`);
 
+      await sendCampaignApprovalEmail(campaignRef.id, "push", category, tone);
+
       return null;
     } catch (error) {
-      console.error("Error generating push content with Claude:", error);
+      console.error("Error generating push content with Gemini:", error);
 
       // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "claude" as const,
+        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -176,7 +242,7 @@ export const generatePushCampaign = functions
  * Cron: 0 8 * * 5
  */
 export const generateInAppCampaign = functions
-  .runWith({ secrets: ["CLAUDE_API_KEY"] })
+  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
   .pubsub.schedule("0 8 * * 5")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
@@ -216,7 +282,7 @@ export const generateInAppCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      claude_model: "claude-sonnet-4-20250514",
+      gemini_model: "gemini-2.0-flash",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -231,7 +297,7 @@ export const generateInAppCampaign = functions
     };
 
     try {
-      // Generate content with Claude
+      // Generate content with Gemini
       const inappContent = await generateInAppContent(contextWithOccasion, category, tone);
 
       // Add featured image if available
@@ -243,22 +309,24 @@ export const generateInAppCampaign = functions
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "claude",
+        generated_by: "gemini",
         inapp_content: inappContent,
       };
 
       const campaignRef = await getDb().collection("campaigns").add(campaignData);
       console.log(`In-app campaign created: ${campaignRef.id}`);
 
+      await sendCampaignApprovalEmail(campaignRef.id, "inapp", category, tone);
+
       return null;
     } catch (error) {
-      console.error("Error generating in-app content with Claude:", error);
+      console.error("Error generating in-app content with Gemini:", error);
 
       // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "claude" as const,
+        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -276,7 +344,7 @@ export const generateInAppCampaign = functions
  * Cron: 0 8 1,15 * *
  */
 export const generateEmailCampaign = functions
-  .runWith({ secrets: ["CLAUDE_API_KEY"] })
+  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
   .pubsub.schedule("0 8 1,15 * *")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
@@ -313,7 +381,7 @@ export const generateEmailCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      claude_model: "claude-sonnet-4-20250514",
+      gemini_model: "gemini-2.0-flash",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -328,29 +396,31 @@ export const generateEmailCampaign = functions
     };
 
     try {
-      // Generate content with Claude
+      // Generate content with Gemini
       const emailContent = await generateEmailContent(contextWithOccasion, category, tone);
 
       // Create campaign document with generated content
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "claude",
+        generated_by: "gemini",
         email_content: emailContent,
       };
 
       const campaignRef = await getDb().collection("campaigns").add(campaignData);
       console.log(`Email campaign created: ${campaignRef.id}`);
 
+      await sendCampaignApprovalEmail(campaignRef.id, "email", category, tone);
+
       return null;
     } catch (error) {
-      console.error("Error generating email content with Claude:", error);
+      console.error("Error generating email content with Gemini:", error);
 
       // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "claude" as const,
+        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -423,8 +493,8 @@ export async function manuallyGenerateCampaign(
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      generated_by: "claude",
-      claude_model: "claude-sonnet-4-20250514",
+      generated_by: "gemini",
+      gemini_model: "gemini-2.0-flash",
       tone,
       [`${campaignType}_content`]: generatedContent,
       target_audience: "all_active",

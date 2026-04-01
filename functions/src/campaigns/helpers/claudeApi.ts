@@ -1,8 +1,7 @@
 /**
  * AI Content Generation using Google Gemini
  *
- * Replaces Anthropic Claude with Gemini 2.0 Flash (free tier).
- * Generates Spanish campaign content for Heroes Colombia users.
+ * Generates Spanish campaign content for Heroes Colombia users using Gemini 2.0 Flash (free tier).
  *
  * Part of the Automated Engagement System - Part A
  */

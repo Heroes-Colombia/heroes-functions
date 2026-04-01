@@ -13,6 +13,7 @@ export {
   checkIncompleteProfiles,
   manualCheckExpiredPromotions,
   checkBusinessNotifications,
+  sendWeeklyReports,
 } from "./scheduledChecks";
 
 // Weekly/Monthly Reports
