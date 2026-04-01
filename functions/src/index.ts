@@ -47,6 +47,7 @@ import {
   checkNoActivePromotions,
   checkIncompleteProfiles,
   sendMonthlyReports,
+  sendWeeklyReports,
   onNewFavourite,
   onCtaClick,
   checkCtaClicks,
@@ -212,10 +213,11 @@ async function requireAdminAuth(
   const token = authHeader.split("Bearer ")[1];
 
   try {
-    // const decodedToken = await admin.auth().verifyIdToken(token);
+    // Verify Firebase ID token properly
+    const decodedToken = await admin.auth().verifyIdToken(token);
 
     // Check if user is admin
-    const userDoc = await admin.firestore().collection("users").doc(token).get();
+    const userDoc = await admin.firestore().collection("users").doc(decodedToken.uid).get();
     const userData = userDoc.data();
 
     if (!userData || userData.permission !== "admin") {
@@ -225,8 +227,8 @@ async function requireAdminAuth(
 
     // Attach user info to request
     (request as any).user = {
-      uid: token,
-      email: userData.email,
+      uid: decodedToken.uid,
+      email: decodedToken.email,
       role: userData.role,
     };
 
@@ -371,6 +373,9 @@ exports.checkNoActivePromotions = checkNoActivePromotions;
 
 // Check for incomplete business profiles every Wednesday at 11 AM
 exports.checkIncompleteProfiles = checkIncompleteProfiles;
+
+// Send weekly reports to all businesses every Monday at 10 AM
+exports.sendWeeklyReports = sendWeeklyReports;
 
 // Send monthly reports to businesses on 1st of month at 10 AM
 exports.sendMonthlyReports = sendMonthlyReports;

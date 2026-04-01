@@ -1,132 +1,17 @@
 /**
- * Claude API Wrapper for AI Content Generation
+ * AI Content Generation using Google Gemini
  *
- * This module provides functions to generate campaign content using Claude.
- * Uses the official @anthropic-ai/sdk package.
+ * Replaces Anthropic Claude with Gemini 2.0 Flash (free tier).
+ * Generates Spanish campaign content for Heroes Colombia users.
  *
  * Part of the Automated Engagement System - Part A
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-
-// Initialize Anthropic client with API key from Firebase secrets
-// Set secret via: firebase functions:secrets:set CLAUDE_API_KEY
-const getAnthropicClient = (): Anthropic => {
-  const apiKey = process.env.CLAUDE_API_KEY;
-  if (!apiKey) {
-    throw new Error("CLAUDE_API_KEY environment variable is not set");
-  }
-  return new Anthropic({ apiKey });
-};
+import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
 
 // ============================================================================
-// System Prompts
+// Types
 // ============================================================================
-
-export const SYSTEM_PROMPTS = {
-  /**
-   * System prompt for consumer campaign content generation
-   */
-  consumerCampaign: `You are a marketing specialist for Heroes Colombia, a platform connecting Colombian military personnel with exclusive business discounts.
-
-Generate engaging notification content that:
-1. Celebrates and honors military service with a friendly, warm tone
-2. Highlights specific savings and value when applicable
-3. Creates community feeling among heroes
-4. Drives immediate action
-5. Feels NATURAL and HUMAN - like a friend recommending something
-
-CONTENT TYPES (rotate between these):
-- PROMOTIONAL: Specific deals with percentages and business names
-- THEMATIC: Lifestyle goals (fitness, health, family), seasonal
-- NEWS: New businesses joining, new categories
-- TIPS: App features, how to maximize savings
-
-TONE: Friendly, casual (tú is OK but not usted). Include emojis sparingly.
-
-RULES:
-- Spanish (Colombia)
-- Push titles: max 50 chars
-- Push bodies: max 150 chars
-- Be specific, never generic
-- Reference real business names and percentages when provided
-- NEVER use formal "usted" - use friendly "tú" communication`,
-
-  /**
-   * System prompt for monthly platform update in business reports
-   */
-  platformUpdate: `You are Jonathan González, Director of Heroes Colombia.
-Generate a brief, optimistic platform update for the monthly business report.
-
-This appears at the END of the monthly email, before your signature.
-
-REQUIREMENTS:
-- Written personally by you in first person
-- Focus on qualitative growth, community, and impact
-- DO NOT include specific numbers (user counts, business counts, etc.)
-- Mention things like:
-  - Growing community of heroes discovering businesses
-  - Expansion to new cities/regions (general terms)
-  - New features coming soon (vague)
-  - Gratitude for businesses being part of the mission
-- Include personal invitation to respond with feedback
-- Tone: Optimistic, grateful, forward-looking
-- Length: 2-3 short paragraphs
-- Include Colombian flag emoji 🇨🇴 naturally
-- Spanish (Colombia)
-
-Output clean HTML for this section (div with background, heading, paragraphs).`,
-
-  /**
-   * System prompt for business notification emails
-   */
-  businessNotification: `You are Jonathan González, Director of Heroes Colombia.
-Write personal, friendly business notification emails.
-
-STYLE:
-- First person, personal tone
-- Friendly but professional
-- Supportive and helpful, not pushy
-- Spanish (Colombia)
-- NEVER use formal "usted" - use "tú" for a personal touch
-
-Include actionable recommendations when appropriate.`,
-};
-
-// ============================================================================
-// Content Generation Types
-// ============================================================================
-
-export interface PushContent {
-  title: string; // Max 50 chars
-  body: string; // Max 150 chars
-  deep_link: string;
-}
-
-export interface InAppContent {
-  title: string;
-  body: string;
-  image_url: string;
-  featured_promotions: string[];
-  button_text: string;
-  button_action: string;
-}
-
-export interface EmailSection {
-  headline: string;
-  promotions: string[];
-  cta_text: string;
-}
-
-export interface EmailContent {
-  subject: string;
-  preheader: string;
-  sections: EmailSection[];
-  footer_text: string;
-}
-
-export type ContentCategory = "promotional" | "thematic" | "news" | "tips";
-export type Tone = "professional_patriotic" | "friendly" | "urgency" | "celebratory";
 
 export interface ContentContext {
   topPromotions: Array<{
@@ -153,7 +38,100 @@ export interface ContentContext {
     category: string;
   }>;
   currentDate: string;
-  specialOccasion?: string; // e.g., "Día del Padre", "Navidad"
+  specialOccasion?: string;
+}
+
+export interface PushContent {
+  title: string;
+  body: string;
+  deep_link: string;
+}
+
+export interface InAppContent {
+  title: string;
+  body: string;
+  image_url: string;
+  featured_promotions: string[];
+  button_text: string;
+  button_action: string;
+}
+
+export interface EmailContent {
+  subject: string;
+  preheader: string;
+  sections: Array<{
+    headline: string;
+    promotions: string[];
+    cta_text: string;
+  }>;
+  footer_text: string;
+}
+
+export type ContentCategory = "promotional" | "thematic" | "news" | "tips";
+export type Tone =
+  | "friendly"
+  | "urgency"
+  | "celebratory"
+  | "professional_patriotic";
+
+// ============================================================================
+// System Prompts
+// ============================================================================
+
+const SYSTEM_PROMPTS = {
+  consumerCampaign: `Eres el asistente de marketing de Heroes Colombia, una app que conecta a los militares, policías y sus familias con descuentos exclusivos de negocios locales.
+
+Tu trabajo es generar contenido de campañas en ESPAÑOL COLOMBIANO natural y auténtico.
+
+Reglas:
+- Siempre en español colombiano (tuteo, no voseo)
+- Tono cálido y cercano, que reconozca el servicio de los héroes
+- Menciona descuentos y promociones específicas cuando estén disponibles
+- Incluye emojis relevantes pero sin exagerar
+- El contenido debe motivar a abrir la app
+- NUNCA inventes porcentajes o nombres de negocios que no estén en el contexto
+- Responde SOLO con el JSON solicitado, sin texto adicional ni markdown`,
+
+  platformUpdate: `Eres el equipo de producto de Heroes Colombia. Generas actualizaciones mensuales sobre mejoras de la plataforma en español colombiano natural y motivador.
+
+Las actualizaciones deben:
+- Destacar 1-2 mejoras reales o ficticias pero creíbles
+- Usar lenguaje entusiasta pero profesional
+- Agradecer a los negocios aliados
+- Responde SOLO con el HTML solicitado, sin texto adicional`,
+};
+
+// ============================================================================
+// Gemini Client
+// ============================================================================
+
+function getGeminiClient(): GoogleGenerativeAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable not set");
+  }
+  return new GoogleGenerativeAI(apiKey);
+}
+
+function getModel(systemPrompt: string): GenerativeModel {
+  const genAI = getGeminiClient();
+  return genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+    systemInstruction: systemPrompt,
+  });
+}
+
+/**
+ * Parse JSON response from Gemini, stripping any markdown fences
+ */
+function parseJsonResponse<T>(text: string): T {
+  // Strip markdown code fences if present
+  const cleaned = text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  return JSON.parse(cleaned) as T;
 }
 
 // ============================================================================
@@ -161,42 +139,20 @@ export interface ContentContext {
 // ============================================================================
 
 /**
- * Generate push notification content using Claude
+ * Generate push notification content using Gemini
  */
 export async function generatePushContent(
   context: ContentContext,
   category: ContentCategory,
   tone: Tone
 ): Promise<PushContent> {
-  const anthropic = getAnthropicClient();
-
+  const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
   const prompt = buildPushPrompt(context, category, tone);
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
-      system: SYSTEM_PROMPTS.consumerCampaign,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text content in Claude response");
-    }
-
-    // Parse the JSON response
-    const content = JSON.parse(textContent.text) as PushContent;
-
-    // Validate length limits
-    if (content.title.length > 50) {
-      content.title = content.title.substring(0, 47) + "...";
-    }
-    if (content.body.length > 150) {
-      content.body = content.body.substring(0, 147) + "...";
-    }
-
-    return content;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    return parseJsonResponse<PushContent>(text);
   } catch (error) {
     console.error("Error generating push content:", error);
     throw error;
@@ -204,31 +160,20 @@ export async function generatePushContent(
 }
 
 /**
- * Generate in-app messaging content using Claude
+ * Generate in-app message content using Gemini
  */
 export async function generateInAppContent(
   context: ContentContext,
   category: ContentCategory,
   tone: Tone
 ): Promise<InAppContent> {
-  const anthropic = getAnthropicClient();
-
+  const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
   const prompt = buildInAppPrompt(context, category, tone);
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      system: SYSTEM_PROMPTS.consumerCampaign,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text content in Claude response");
-    }
-
-    return JSON.parse(textContent.text) as InAppContent;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    return parseJsonResponse<InAppContent>(text);
   } catch (error) {
     console.error("Error generating in-app content:", error);
     throw error;
@@ -236,31 +181,20 @@ export async function generateInAppContent(
 }
 
 /**
- * Generate email campaign content using Claude
+ * Generate email campaign content using Gemini
  */
 export async function generateEmailContent(
   context: ContentContext,
   category: ContentCategory,
   tone: Tone
 ): Promise<EmailContent> {
-  const anthropic = getAnthropicClient();
-
+  const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
   const prompt = buildEmailPrompt(context, category, tone);
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
-      system: SYSTEM_PROMPTS.consumerCampaign,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text content in Claude response");
-    }
-
-    return JSON.parse(textContent.text) as EmailContent;
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    return parseJsonResponse<EmailContent>(text);
   } catch (error) {
     console.error("Error generating email content:", error);
     throw error;
@@ -271,36 +205,25 @@ export async function generateEmailContent(
  * Generate monthly platform update for business reports
  */
 export async function generatePlatformUpdate(): Promise<string> {
-  const anthropic = getAnthropicClient();
+  const model = getModel(SYSTEM_PROMPTS.platformUpdate);
 
   const currentMonth = new Date().toLocaleDateString("es-CO", {
     month: "long",
     year: "numeric",
   });
 
-  const prompt = `Generate the monthly platform update for ${currentMonth}.
+  const prompt = `Genera la actualización mensual de la plataforma para ${currentMonth}.
 
-Return only the HTML content, no explanation. Use this structure:
+Retorna solo el contenido HTML, sin explicación. Usa esta estructura:
 <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-  <h3 style="margin: 0 0 10px 0; color: #1a1a1a;">[Emoji] [Title]</h3>
-  <p style="color: #333; line-height: 1.6;">[Paragraph 1]</p>
-  <p style="color: #333; line-height: 1.6;">[Paragraph 2]</p>
+  <h3 style="margin: 0 0 10px 0; color: #1a1a1a;">[Emoji] [Título]</h3>
+  <p style="color: #333; line-height: 1.6;">[Párrafo 1]</p>
+  <p style="color: #333; line-height: 1.6;">[Párrafo 2]</p>
 </div>`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      system: SYSTEM_PROMPTS.platformUpdate,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const textContent = response.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text content in Claude response");
-    }
-
-    return textContent.text;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
   } catch (error) {
     console.error("Error generating platform update:", error);
     throw error;
@@ -326,30 +249,30 @@ function buildPushPrompt(
     .map((b) => `- ${b.name} (${b.category})`)
     .join("\n");
 
-  return `Generate a push notification for Heroes Colombia.
+  return `Genera una notificación push para Heroes Colombia.
 
-CONTENT CATEGORY: ${category}
-TONE: ${tone}
-DATE: ${context.currentDate}
-${context.specialOccasion ? `SPECIAL OCCASION: ${context.specialOccasion}` : ""}
+CATEGORÍA DE CONTENIDO: ${category}
+TONO: ${tone}
+FECHA: ${context.currentDate}
+${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-AVAILABLE DATA:
+DATOS DISPONIBLES:
 
-TOP PROMOTIONS:
-${promotionsList || "No promotions available"}
+TOP PROMOCIONES:
+${promotionsList || "No hay promociones disponibles"}
 
-NEW BUSINESSES:
-${newBusinessesList || "No new businesses"}
+NEGOCIOS NUEVOS:
+${newBusinessesList || "No hay negocios nuevos"}
 
-OUTPUT FORMAT (JSON):
+FORMATO DE SALIDA (JSON):
 {
-  "title": "Max 50 chars, engaging, with emoji",
-  "body": "Max 150 chars, compelling call to action",
-  "deep_link": "heroescolombia://promotions or heroescolombia://businesses"
+  "title": "Máx 50 caracteres, llamativo, con emoji",
+  "body": "Máx 150 caracteres, llamada a la acción convincente",
+  "deep_link": "heroescolombia://promotions o heroescolombia://businesses"
 }
 
-Generate content that matches the category (${category}). Be creative and natural.
-Return ONLY the JSON, no explanation.`;
+Genera contenido que coincida con la categoría (${category}). Sé creativo y natural.
+Retorna SOLO el JSON, sin explicación.`;
 }
 
 function buildInAppPrompt(
@@ -360,29 +283,28 @@ function buildInAppPrompt(
   const topPromotion = context.topPromotions[0];
   const featuredPromotions = context.topPromotions.slice(0, 5).map((p) => p.id);
 
-  return `Generate an in-app message for Heroes Colombia.
+  return `Genera un mensaje in-app para Heroes Colombia.
 
-CONTENT CATEGORY: ${category}
-TONE: ${tone}
-DATE: ${context.currentDate}
-${context.specialOccasion ? `SPECIAL OCCASION: ${context.specialOccasion}` : ""}
+CATEGORÍA DE CONTENIDO: ${category}
+TONO: ${tone}
+FECHA: ${context.currentDate}
+${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-FEATURED PROMOTION (for image):
-${topPromotion ? `${topPromotion.business_name}: ${topPromotion.title} (${topPromotion.percentage}%)` : "None"}
-Image URL will be provided separately.
+PROMOCIÓN DESTACADA (para imagen):
+${topPromotion ? `${topPromotion.business_name}: ${topPromotion.title} (${topPromotion.percentage}%)` : "Ninguna"}
 
-OUTPUT FORMAT (JSON):
+FORMATO DE SALIDA (JSON):
 {
-  "title": "Engaging title",
-  "body": "Compelling description (2-3 sentences)",
+  "title": "Título llamativo",
+  "body": "Descripción convincente (2-3 oraciones)",
   "image_url": "",
   "featured_promotions": ${JSON.stringify(featuredPromotions)},
-  "button_text": "Call to action button text",
+  "button_text": "Texto del botón de acción",
   "button_action": "heroescolombia://promotions"
 }
 
-Generate content that matches the category (${category}).
-Return ONLY the JSON, no explanation.`;
+Genera contenido que coincida con la categoría (${category}).
+Retorna SOLO el JSON, sin explicación.`;
 }
 
 function buildEmailPrompt(
@@ -395,32 +317,32 @@ function buildEmailPrompt(
     .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}%)`)
     .join("\n");
 
-  return `Generate an email campaign for Heroes Colombia.
+  return `Genera una campaña de email para Heroes Colombia.
 
-CONTENT CATEGORY: ${category}
-TONE: ${tone}
-DATE: ${context.currentDate}
-${context.specialOccasion ? `SPECIAL OCCASION: ${context.specialOccasion}` : ""}
+CATEGORÍA DE CONTENIDO: ${category}
+TONO: ${tone}
+FECHA: ${context.currentDate}
+${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-TOP PROMOTIONS:
-${promotionsList || "No promotions available"}
+TOP PROMOCIONES:
+${promotionsList || "No hay promociones disponibles"}
 
-OUTPUT FORMAT (JSON):
+FORMATO DE SALIDA (JSON):
 {
-  "subject": "Email subject line (compelling, personalized)",
-  "preheader": "Preview text for email (max 100 chars)",
+  "subject": "Línea de asunto (convincente, personalizada)",
+  "preheader": "Texto de vista previa del email (máx 100 caracteres)",
   "sections": [
     {
-      "headline": "Section headline",
+      "headline": "Titular de la sección",
       "promotions": ["promo_id_1", "promo_id_2"],
-      "cta_text": "Call to action text"
+      "cta_text": "Texto de llamada a la acción"
     }
   ],
-  "footer_text": "Closing message"
+  "footer_text": "Mensaje de cierre"
 }
 
-Generate content with 2-3 sections. Use promotion IDs from: ${context.topPromotions.map((p) => p.id).join(", ")}
-Return ONLY the JSON, no explanation.`;
+Genera contenido con 2-3 secciones. Usa IDs de promoción de: ${context.topPromotions.map((p) => p.id).join(", ")}
+Retorna SOLO el JSON, sin explicación.`;
 }
 
 // ============================================================================
@@ -438,7 +360,6 @@ export function determineContentCategory(date: Date): ContentCategory {
   // Tuesday/Friday: thematic
   // Wednesday: news
   // Saturday/Sunday: tips
-
   if (dayOfWeek === 1 || dayOfWeek === 4) return "promotional";
   if (dayOfWeek === 2 || dayOfWeek === 5) return "thematic";
   if (dayOfWeek === 3) return "news";

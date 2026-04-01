@@ -358,3 +358,63 @@ export async function checkBusinessNotifications(
     expiredPromotions,
   };
 }
+
+// ============================================================================
+// Weekly Reports (scheduled - previously manual-only)
+// ============================================================================
+
+import { sendWeeklyReportToBusiness as _sendWeeklyReport } from "./reports";
+
+/**
+ * Send weekly performance reports to all active businesses
+ * Schedule: Every Monday at 10 AM Colombia time
+ */
+export const sendWeeklyReports = functions
+  .runWith({ secrets: ["RESEND_API_KEY"], timeoutSeconds: 540, memory: "512MB" as "512MB" })
+  .pubsub.schedule("0 10 * * 1")
+  .timeZone("America/Bogota")
+  .onRun(async (_context) => {
+    console.log("Starting weekly reports send...");
+
+    try {
+      const businesses = await getActiveBusinesses();
+      console.log(`Sending weekly reports to ${businesses.length} businesses`);
+
+      let sent = 0;
+      let skipped = 0;
+      let errors = 0;
+
+      for (const business of businesses) {
+        if (!(await isEmailNotificationEnabled(business.id))) {
+          skipped++;
+          continue;
+        }
+
+        // 6-day cooldown to prevent duplicate sends within same week
+        if (await wasRecentlySent(business.id, "weekly_report", 144)) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          const result = await _sendWeeklyReport(business.id);
+          if (result.success) {
+            sent++;
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.error(`Error sending weekly report to ${business.id}:`, err);
+          errors++;
+        }
+      }
+
+      console.log(
+        `Weekly reports complete: ${sent} sent, ${skipped} skipped, ${errors} errors`
+      );
+      return null;
+    } catch (error) {
+      console.error("Error in sendWeeklyReports:", error);
+      throw error;
+    }
+  });
