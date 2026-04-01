@@ -108,7 +108,7 @@ async function getTopPromotionsByViews(limit: number): Promise<PromotionData[]> 
     // Aggregate views by promotion_id
     const viewCounts = new Map<string, number>();
     viewEvents.docs.forEach((doc) => {
-      const promotionId = doc.data().promotion_id;
+      const promotionId = doc.data().entity_id; // FIX: was promotion_id
       if (promotionId) {
         viewCounts.set(promotionId, (viewCounts.get(promotionId) || 0) + 1);
       }
@@ -158,7 +158,7 @@ async function getUnderPromotedPromotions(limit: number): Promise<PromotionData[
 
     const viewCounts = new Map<string, number>();
     viewEvents.docs.forEach((doc) => {
-      const promotionId = doc.data().promotion_id;
+      const promotionId = doc.data().entity_id; // FIX: was promotion_id
       if (promotionId) {
         viewCounts.set(promotionId, (viewCounts.get(promotionId) || 0) + 1);
       }
