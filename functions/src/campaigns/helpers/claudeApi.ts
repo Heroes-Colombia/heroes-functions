@@ -6,7 +6,7 @@
  * Part of the Automated Engagement System - Part A
  */
 
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
+import { VertexAI } from "@google-cloud/vertexai";
 
 // ============================================================================
 // Types
@@ -104,20 +104,25 @@ Las actualizaciones deben:
 // Gemini Client
 // ============================================================================
 
-function getGeminiClient(): GoogleGenerativeAI {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY environment variable not set");
-  }
-  return new GoogleGenerativeAI(apiKey);
-}
-
-function getModel(systemPrompt: string): GenerativeModel {
-  const genAI = getGeminiClient();
-  return genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
+function getModel(systemPrompt: string) {
+  const vertexAI = new VertexAI({ project: "heroes-cd74a", location: "us-central1" });
+  const model = vertexAI.getGenerativeModel({
+    model: "gemini-2.5-flash-lite",
+    systemInstruction: { role: "system", parts: [{ text: systemPrompt }] },
   });
+
+  return {
+    generateContent: async (prompt: string) => {
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+      return {
+        response: {
+          text: () => result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? "",
+        },
+      };
+    },
+  };
 }
 
 /**

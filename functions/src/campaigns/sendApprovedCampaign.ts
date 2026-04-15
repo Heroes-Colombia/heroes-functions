@@ -2,12 +2,15 @@
  * Firestore Trigger: Send Approved Campaigns
  *
  * Automatically sends campaigns when their status changes to "approved".
+ * If scheduled_for is in the future, a Cloud Task is created to send at
+ * the right time. Otherwise the campaign is sent immediately.
  * Updates analytics and handles errors.
  *
  * Part of the Automated Engagement System - Part A (Phase 4)
  */
 
 import * as functions from "firebase-functions/v1";
+import { CloudTasksClient } from "@google-cloud/tasks";
 import { admin, getDb } from "../utils/firebase";
 import {
   sendCampaign,
@@ -16,6 +19,17 @@ import {
 } from "./helpers/batchSending";
 import { updateEnterpriseRotation } from "./helpers/enterpriseRotation";
 import { PushContent, EmailContent, InAppContent } from "./helpers/claudeApi";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const FIREBASE_PROJECT = "heroes-cd74a";
+const TASKS_LOCATION = "us-central1";
+const TASKS_QUEUE = "campaign-sends";
+// If scheduled_for is within this many seconds from now, send immediately
+// instead of creating a Cloud Task (avoids unnecessary scheduling overhead)
+const SCHEDULE_BUFFER_SECONDS = 60;
 
 // ============================================================================
 // Types
@@ -33,6 +47,7 @@ type CampaignStatus =
 interface CampaignDocument {
   campaign_type: "push" | "inapp" | "email";
   status: CampaignStatus;
+  scheduled_for?: admin.firestore.Timestamp;
   push_content?: PushContent;
   inapp_content?: InAppContent;
   email_content?: EmailContent;
@@ -53,11 +68,13 @@ interface CampaignDocument {
 
 /**
  * Firestore trigger that fires when a campaign document is updated.
- * If the status changes to "approved", it sends the campaign.
+ * If the status changes to "approved":
+ *   - Future campaigns: creates a Cloud Task scheduled for scheduled_for
+ *   - Past/immediate campaigns: sends right away
  */
 export const onCampaignApproved = functions
   .runWith({
-    secrets: ["RESEND_API_KEY"],
+    secrets: ["RESEND_API_KEY", "CLOUD_TASKS_SECRET"],
     timeoutSeconds: 540, // 9 minutes for large sends
     memory: "512MB",
   })
@@ -72,71 +89,78 @@ export const onCampaignApproved = functions
       return null;
     }
 
-    console.log(`Campaign ${campaignId} approved - starting send process...`);
-
     const campaignRef = getDb().collection("campaigns").doc(campaignId);
+    const scheduledFor = after.scheduled_for?.toDate();
+    const now = new Date();
+    const bufferMs = SCHEDULE_BUFFER_SECONDS * 1000;
 
-    try {
-      // Update status to "sending"
-      await campaignRef.update({
-        status: "sending",
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        sending_started_at: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      // Get the appropriate content based on campaign type
-      const content = getCampaignContent(after);
-
-      if (!content) {
-        throw new Error(`No content found for ${after.campaign_type} campaign`);
-      }
-
-      // Send the campaign
-      const result = await sendCampaign(
-        campaignId,
-        after.campaign_type,
-        content
+    if (scheduledFor && scheduledFor.getTime() > now.getTime() + bufferMs) {
+      // Campaign is set for a future time — schedule via Cloud Tasks
+      console.log(
+        `Campaign ${campaignId} approved - scheduling for ${scheduledFor.toISOString()}`
       );
-
-      // Update campaign with results
-      await updateCampaignWithResults(campaignRef, after, result);
-
-      // Update enterprise rotation if applicable
-      if (
-        after.content_sources.enterprise_businesses &&
-        after.content_sources.enterprise_businesses.length > 0
-      ) {
-        await updateEnterpriseRotation(
-          after.content_sources.enterprise_businesses,
-          campaignId
+      try {
+        const taskName = await scheduleViaCloudTasks(campaignId, scheduledFor);
+        await campaignRef.update({
+          cloud_task_name: taskName,
+          updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`Campaign ${campaignId} scheduled via Cloud Tasks`);
+      } catch (error) {
+        console.error(
+          `Failed to create Cloud Task for campaign ${campaignId}, sending immediately:`,
+          error
         );
+        // Fall back to immediate send if task creation fails
+        await executeSend(campaignId, campaignRef, after);
       }
-
-      // Cleanup invalid tokens
-      if (result.failed_tokens.length > 0) {
-        await cleanupInvalidTokens(result.failed_tokens);
-      }
-
-      console.log(`Campaign ${campaignId} sent successfully`);
-      return null;
-    } catch (error) {
-      console.error(`Error sending campaign ${campaignId}:`, error);
-
-      // Update status to failed
-      await campaignRef.update({
-        status: "failed",
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        error_message: error instanceof Error ? error.message : String(error),
-        failed_at: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
       return null;
     }
+
+    // scheduled_for is in the past or not set — send immediately
+    console.log(`Campaign ${campaignId} approved - sending immediately`);
+    await executeSend(campaignId, campaignRef, after);
+    return null;
   });
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
+
+/**
+ * Creates a Cloud Task that will POST to the execute-send endpoint
+ * at the given scheduled time.
+ * Returns the created task's full resource name.
+ */
+async function scheduleViaCloudTasks(
+  campaignId: string,
+  scheduledFor: Date
+): Promise<string> {
+  const client = new CloudTasksClient();
+  const parent = client.queuePath(FIREBASE_PROJECT, TASKS_LOCATION, TASKS_QUEUE);
+
+  const functionUrl = `https://${TASKS_LOCATION}-${FIREBASE_PROJECT}.cloudfunctions.net/widgets/campaigns/internal/execute-send`;
+
+  const [task] = await client.createTask({
+    parent,
+    task: {
+      httpRequest: {
+        httpMethod: "POST",
+        url: functionUrl,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tasks-Secret": process.env.CLOUD_TASKS_SECRET || "",
+        },
+        body: Buffer.from(JSON.stringify({ campaignId })),
+      },
+      scheduleTime: {
+        seconds: Math.floor(scheduledFor.getTime() / 1000),
+      },
+    },
+  });
+
+  return task.name || "";
+}
 
 /**
  * Get the content object based on campaign type
@@ -153,6 +177,58 @@ function getCampaignContent(
       return campaign.email_content || null;
     default:
       return null;
+  }
+}
+
+/**
+ * Core send logic shared by the Firestore trigger (immediate path)
+ * and the manuallySendCampaign function (manual / Cloud Task path).
+ */
+async function executeSend(
+  campaignId: string,
+  campaignRef: admin.firestore.DocumentReference,
+  campaign: CampaignDocument
+): Promise<void> {
+  try {
+    await campaignRef.update({
+      status: "sending",
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      sending_started_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const content = getCampaignContent(campaign);
+
+    if (!content) {
+      throw new Error(`No content found for ${campaign.campaign_type} campaign`);
+    }
+
+    const result = await sendCampaign(campaignId, campaign.campaign_type, content);
+
+    await updateCampaignWithResults(campaignRef, campaign, result);
+
+    if (
+      campaign.content_sources.enterprise_businesses &&
+      campaign.content_sources.enterprise_businesses.length > 0
+    ) {
+      await updateEnterpriseRotation(
+        campaign.content_sources.enterprise_businesses,
+        campaignId
+      );
+    }
+
+    if (result.failed_tokens.length > 0) {
+      await cleanupInvalidTokens(result.failed_tokens);
+    }
+
+    console.log(`Campaign ${campaignId} sent successfully`);
+  } catch (error) {
+    console.error(`Error sending campaign ${campaignId}:`, error);
+    await campaignRef.update({
+      status: "failed",
+      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      error_message: error instanceof Error ? error.message : String(error),
+      failed_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
   }
 }
 
@@ -195,8 +271,9 @@ async function updateCampaignWithResults(
 // ============================================================================
 
 /**
- * Manually trigger campaign sending
- * Can be called via REST API for testing or retrying failed campaigns
+ * Manually trigger campaign sending.
+ * Called by the Cloud Task execute-send endpoint and the campaign API's
+ * /send route for testing or retrying failed campaigns.
  */
 export async function manuallySendCampaign(campaignId: string): Promise<{
   success: boolean;
@@ -221,56 +298,12 @@ export async function manuallySendCampaign(campaignId: string): Promise<{
   }
 
   try {
-    // Update status to sending
-    await campaignRef.update({
-      status: "sending",
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      sending_started_at: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    const content = getCampaignContent(campaign);
-
-    if (!content) {
-      throw new Error(`No content found for ${campaign.campaign_type} campaign`);
-    }
-
-    // Send the campaign
-    const result = await sendCampaign(
-      campaignId,
-      campaign.campaign_type,
-      content
-    );
-
-    // Update with results
-    await updateCampaignWithResults(campaignRef, campaign, result);
-
-    // Update enterprise rotation
-    if (
-      campaign.content_sources.enterprise_businesses &&
-      campaign.content_sources.enterprise_businesses.length > 0
-    ) {
-      await updateEnterpriseRotation(
-        campaign.content_sources.enterprise_businesses,
-        campaignId
-      );
-    }
-
-    // Cleanup invalid tokens
-    if (result.failed_tokens.length > 0) {
-      await cleanupInvalidTokens(result.failed_tokens);
-    }
-
-    return { success: true, result };
+    await executeSend(campaignId, campaignRef, campaign);
+    // Re-fetch to get updated analytics for the response
+    const updated = await campaignRef.get();
+    return { success: true, result: updated.data()?.analytics };
   } catch (error) {
     console.error(`Error manually sending campaign ${campaignId}:`, error);
-
-    await campaignRef.update({
-      status: "failed",
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      error_message: error instanceof Error ? error.message : String(error),
-      failed_at: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

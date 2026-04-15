@@ -1,4 +1,4 @@
-import { onRequest } from "firebase-functions/v1/https";
+import * as functionsV1 from "firebase-functions/v1";
 
 // Initialize Firebase Admin first (before any other imports that use it)
 import { admin } from "./utils/firebase";
@@ -38,7 +38,10 @@ import {
 } from "./campaigns/generateCampaigns";
 
 // Campaign Sending Functions - Automated Engagement System (Phase 4)
-import { onCampaignApproved } from "./campaigns/sendApprovedCampaign";
+import {
+  onCampaignApproved,
+  manuallySendCampaign,
+} from "./campaigns/sendApprovedCampaign";
 import campaignApiRouter from "./campaigns/campaignApi";
 
 // Business Notifications Functions - Automated Engagement System (Phase 5)
@@ -169,6 +172,30 @@ app.get("/backfill/initialize", initializePromotionCounts);
 
 // Mount campaign API router with full CRUD + approval workflow
 app.use("/campaigns", campaignApiRouter);
+
+// Internal endpoint called by Cloud Tasks to execute a scheduled campaign send.
+// Protected by a shared secret so only Cloud Tasks can trigger it.
+app.post("/campaigns/internal/execute-send", async (request, response) => {
+  const secret = request.headers["x-tasks-secret"];
+  if (!secret || secret !== process.env.CLOUD_TASKS_SECRET) {
+    response.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { campaignId } = request.body;
+  if (!campaignId || typeof campaignId !== "string") {
+    response.status(400).json({ error: "campaignId is required" });
+    return;
+  }
+
+  try {
+    const result = await manuallySendCampaign(campaignId);
+    response.status(result.success ? 200 : 500).json(result);
+  } catch (error) {
+    console.error("Error in execute-send endpoint:", error);
+    response.status(500).json({ error: String(error) });
+  }
+});
 
 // Legacy endpoint kept for backwards compatibility
 app.post("/campaigns/generate-legacy", async (request, response) => {
@@ -407,4 +434,9 @@ exports.sendTrialExpiringWarnings = sendTrialExpiringWarnings;
 // ============================================================================
 
 //Export the express app
-exports.widgets = onRequest(app);
+// Declares secrets needed by routes in the express app:
+// - CLOUD_TASKS_SECRET: verifies incoming Cloud Tasks requests in /campaigns/internal/execute-send
+// - RESEND_API_KEY: used by manuallySendCampaign when sending email campaigns
+exports.widgets = functionsV1
+  .runWith({ secrets: ["CLOUD_TASKS_SECRET", "RESEND_API_KEY"] })
+  .https.onRequest(app);

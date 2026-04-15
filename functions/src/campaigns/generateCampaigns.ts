@@ -142,12 +142,12 @@ interface CampaignDocument {
 
 /**
  * Generate Push Notification Campaign
- * Schedule: Every 2 days at 8 AM Colombia time (for 10-11 AM send after approval)
- * Cron: 0 8 *\/2 * * (every 2 days)
+ * Schedule: Every 3 days at 1 AM Colombia time (for 10-11 AM send after approval)
+ * Cron: 0 1 *\/3 * * (every 3 days)
  */
 export const generatePushCampaign = functions
-  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
-  .pubsub.schedule("0 8 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31 * *")
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .pubsub.schedule("0 1 */3 * *")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
     console.log("Starting push campaign generation...");
@@ -174,9 +174,16 @@ export const generatePushCampaign = functions
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
-      scheduled_for: Timestamp.fromDate(
-        new Date(date.getTime() + 2 * 60 * 60 * 1000) // 2 hours from now
-      ),
+      scheduled_for: (() => {
+        // Schedule for 10:00 AM Colombia Time (UTC-5)
+        const scheduled = new Date(date);
+        scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
+        // If that time has already passed today, schedule for tomorrow
+        if (scheduled <= date) {
+          scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+        }
+        return Timestamp.fromDate(scheduled);
+      })(),
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
@@ -184,7 +191,7 @@ export const generatePushCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      gemini_model: "gemini-2.0-flash",
+      gemini_model: "gemini-2.5-flash-lite",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -238,12 +245,12 @@ export const generatePushCampaign = functions
 
 /**
  * Generate In-App Messaging Campaign
- * Schedule: Every Friday at 8 AM Colombia time
- * Cron: 0 8 * * 5
+ * Schedule: Every Friday at 1 AM Colombia time
+ * Cron: 0 1 * * 5
  */
 export const generateInAppCampaign = functions
-  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
-  .pubsub.schedule("0 8 * * 5")
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .pubsub.schedule("0 1 * * 5")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
     console.log("Starting in-app campaign generation...");
@@ -272,9 +279,16 @@ export const generateInAppCampaign = functions
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
-      scheduled_for: Timestamp.fromDate(
-        new Date(date.getTime() + 2 * 60 * 60 * 1000)
-      ),
+      scheduled_for: (() => {
+        // Schedule for 10:00 AM Colombia Time (UTC-5)
+        const scheduled = new Date(date);
+        scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
+        // If that time has already passed today, schedule for tomorrow
+        if (scheduled <= date) {
+          scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+        }
+        return Timestamp.fromDate(scheduled);
+      })(),
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
@@ -282,7 +296,7 @@ export const generateInAppCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      gemini_model: "gemini-2.0-flash",
+      gemini_model: "gemini-2.5-flash-lite",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -340,12 +354,12 @@ export const generateInAppCampaign = functions
 
 /**
  * Generate Email Campaign
- * Schedule: 1st and 15th of each month at 8 AM Colombia time
- * Cron: 0 8 1,15 * *
+ * Schedule: 1st of each month at 1 AM Colombia time
+ * Cron: 0 1 1 * *
  */
 export const generateEmailCampaign = functions
-  .runWith({ secrets: ["GEMINI_API_KEY", "RESEND_API_KEY"] })
-  .pubsub.schedule("0 8 1,15 * *")
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .pubsub.schedule("0 1 1 * *")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
     console.log("Starting email campaign generation...");
@@ -371,9 +385,16 @@ export const generateEmailCampaign = functions
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
-      scheduled_for: Timestamp.fromDate(
-        new Date(date.getTime() + 2 * 60 * 60 * 1000)
-      ),
+      scheduled_for: (() => {
+        // Schedule for 10:00 AM Colombia Time (UTC-5)
+        const scheduled = new Date(date);
+        scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
+        // If that time has already passed today, schedule for tomorrow
+        if (scheduled <= date) {
+          scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+        }
+        return Timestamp.fromDate(scheduled);
+      })(),
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
@@ -381,7 +402,7 @@ export const generateEmailCampaign = functions
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      gemini_model: "gemini-2.0-flash",
+      gemini_model: "gemini-2.5-flash-lite",
       tone,
       target_audience: "all_active" as const,
       analytics: {
@@ -494,7 +515,7 @@ export async function manuallyGenerateCampaign(
         categories: [],
       },
       generated_by: "gemini",
-      gemini_model: "gemini-2.0-flash",
+      gemini_model: "gemini-2.5-flash-lite",
       tone,
       [`${campaignType}_content`]: generatedContent,
       target_audience: "all_active",
