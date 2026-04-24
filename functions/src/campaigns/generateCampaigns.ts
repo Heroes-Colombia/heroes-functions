@@ -112,7 +112,6 @@ interface CampaignDocument {
     new_businesses: string[];
     categories: string[];
   };
-  generated_by: "gemini" | "manual";
   gemini_model: string;
   tone: Tone;
   generation_prompt?: string;
@@ -213,7 +212,6 @@ export const generatePushCampaign = functions
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "gemini",
         push_content: pushContent,
       };
 
@@ -231,7 +229,6 @@ export const generatePushCampaign = functions
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -323,7 +320,6 @@ export const generateInAppCampaign = functions
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "gemini",
         inapp_content: inappContent,
       };
 
@@ -340,7 +336,6 @@ export const generateInAppCampaign = functions
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -424,7 +419,6 @@ export const generateEmailCampaign = functions
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
-        generated_by: "gemini",
         email_content: emailContent,
       };
 
@@ -441,7 +435,6 @@ export const generateEmailCampaign = functions
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
-        generated_by: "gemini" as const,
         error_message: error instanceof Error ? error.message : String(error),
         failed_at: Timestamp.now(),
       };
@@ -514,7 +507,6 @@ export async function manuallyGenerateCampaign(
         new_businesses: content.newBusinesses.map((b) => b.id),
         categories: [],
       },
-      generated_by: "gemini",
       gemini_model: "gemini-2.5-flash-lite",
       tone,
       [`${campaignType}_content`]: generatedContent,

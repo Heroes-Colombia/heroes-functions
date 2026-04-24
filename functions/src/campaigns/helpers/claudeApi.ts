@@ -43,7 +43,6 @@ export interface ContentContext {
 export interface PushContent {
   title: string;
   body: string;
-  deep_link: string;
 }
 
 export interface InAppContent {
@@ -78,7 +77,8 @@ export type Tone =
 // ============================================================================
 
 const SYSTEM_PROMPTS = {
-  consumerCampaign: `Eres el asistente de marketing de Heroes Colombia, una app que conecta a los militares, policías y sus familias con descuentos exclusivos de negocios locales.
+  consumerCampaign: `Eres el asistente de marketing de Heroes Colombia, una app que conecta a todos los miembros de las fuerzas armadas de Colombia (ejercito, policia nacional, armada, y fuerza aeroespacial)
+  y sus familias con descuentos exclusivos de negocios locales a nivel nacional.
 
 Tu trabajo es generar contenido de campañas en ESPAÑOL COLOMBIANO natural y auténtico.
 
@@ -94,7 +94,7 @@ Reglas:
   platformUpdate: `Eres el equipo de producto de Heroes Colombia. Generas actualizaciones mensuales sobre mejoras de la plataforma en español colombiano natural y motivador.
 
 Las actualizaciones deben:
-- Destacar 1-2 mejoras reales o ficticias pero creíbles
+- Destacar 1-2 mejoras reales pero creíbles
 - Usar lenguaje entusiasta pero profesional
 - Agradecer a los negocios aliados
 - Responde SOLO con el HTML solicitado, sin texto adicional`,
@@ -271,11 +271,10 @@ ${newBusinessesList || "No hay negocios nuevos"}
 FORMATO DE SALIDA (JSON):
 {
   "title": "Máx 50 caracteres, llamativo, con emoji",
-  "body": "Máx 150 caracteres, llamada a la acción convincente",
-  "deep_link": "heroescolombia://promotions o heroescolombia://businesses"
+  "body": "Máx 120 caracteres, llamada a la acción convincente"
 }
 
-Genera contenido que coincida con la categoría (${category}). Sé creativo y natural.
+Genera contenido que coincida con la categoría (${category}). Sé creativo y suena natural sin palabras que suenen forzadas.
 Retorna SOLO el JSON, sin explicación.`;
 }
 
@@ -307,7 +306,7 @@ FORMATO DE SALIDA (JSON):
   "button_action": "heroescolombia://promotions"
 }
 
-Genera contenido que coincida con la categoría (${category}).
+Genera contenido que coincida con la categoría (${category}). Sé creativo y suena natural sin palabras que suenen forzadas.
 Retorna SOLO el JSON, sin explicación.`;
 }
 
@@ -346,7 +345,7 @@ FORMATO DE SALIDA (JSON):
 }
 
 Genera contenido con 2-3 secciones. Usa IDs de promoción de: ${context.topPromotions.map((p) => p.id).join(", ")}
-Retorna SOLO el JSON, sin explicación.`;
+Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
 }
 
 // ============================================================================

@@ -19,9 +19,7 @@ import { Timestamp, FieldValue } from "firebase-admin/firestore"
 export interface ActiveUser {
   id: string;
   email: string;
-  notification_token?: string;
-  email_notifications_enabled: boolean;
-  push_notifications_enabled: boolean;
+  device_notification_token?: string;
   first_name?: string;
   last_name?: string;
 }
@@ -60,9 +58,6 @@ export interface PromotionData {
 // Configuration
 // ============================================================================
 
-// FCM batch limit
-const FCM_BATCH_SIZE = 500;
-
 // Email batch size for Resend
 const EMAIL_BATCH_SIZE = 100;
 
@@ -91,16 +86,15 @@ function getResendClient(): Resend {
 export async function getActiveUsers(): Promise<ActiveUser[]> {
   const usersSnapshot = await getDb()
     .collection("users")
-    .where("account_status", "==", "active")
+    .where("status", "==", "active")
+    .where("user_type", "!=", "business_team")
     .get();
 
   return usersSnapshot.docs.map((doc) => ({
     id: doc.id,
     email: doc.data().email || "",
-    notification_token: doc.data().notification_token,
-    email_notifications_enabled: doc.data().email_notifications_enabled !== false,
-    push_notifications_enabled: doc.data().push_notifications_enabled !== false,
-    first_name: doc.data().first_name,
+    device_notification_token: doc.data().device_notification_token,
+    first_name: doc.data().first_last_name,
     last_name: doc.data().last_name,
   }));
 }
@@ -111,9 +105,8 @@ export async function getActiveUsers(): Promise<ActiveUser[]> {
 export function getPushEligibleUsers(users: ActiveUser[]): ActiveUser[] {
   return users.filter(
     (user) =>
-      user.push_notifications_enabled &&
-      user.notification_token &&
-      user.notification_token.length > 0
+      user.device_notification_token &&
+      user.device_notification_token.length > 0
   );
 }
 
@@ -123,7 +116,6 @@ export function getPushEligibleUsers(users: ActiveUser[]): ActiveUser[] {
 export function getEmailEligibleUsers(users: ActiveUser[]): ActiveUser[] {
   return users.filter(
     (user) =>
-      user.email_notifications_enabled &&
       user.email &&
       user.email.length > 0 &&
       user.email.includes("@")
@@ -134,71 +126,35 @@ export function getEmailEligibleUsers(users: ActiveUser[]): ActiveUser[] {
 // Push Notification Sending
 // ============================================================================
 
+// FCM topic all consumer users are subscribed to on login
+const CONSUMER_TOPIC = "user";
+
 /**
- * Send push notifications to all eligible users in batches
+ * Send push notifications to all users via the "user" FCM topic.
+ * Every consumer subscribes to this topic on login in the Flutter app,
+ * so FCM handles fan-out without needing individual tokens.
  */
 export async function sendPushNotifications(
   content: PushContent,
   users: ActiveUser[]
 ): Promise<{ sent: number; failed: number; failedTokens: string[] }> {
-  const eligibleUsers = getPushEligibleUsers(users);
-  const tokens = eligibleUsers
-    .map((u) => u.notification_token!)
-    .filter((t) => t);
+  console.log(`Sending push notification to topic "${CONSUMER_TOPIC}"...`);
 
-  if (tokens.length === 0) {
-    console.log("No eligible users for push notifications");
-    return { sent: 0, failed: 0, failedTokens: [] };
-  }
+  await admin.messaging().send({
+    notification: {
+      title: content.title,
+      body: content.body,
+    },
+    data: {
+      campaign_type: "consumer",
+    },
+    topic: CONSUMER_TOPIC,
+  });
 
-  console.log(`Sending push notifications to ${tokens.length} users...`);
+  console.log(`Push notification sent to topic "${CONSUMER_TOPIC}"`);
 
-  let totalSent = 0;
-  let totalFailed = 0;
-  const failedTokens: string[] = [];
-
-  // Process in batches
-  for (let i = 0; i < tokens.length; i += FCM_BATCH_SIZE) {
-    const batch = tokens.slice(i, i + FCM_BATCH_SIZE);
-
-    try {
-      const message = {
-        notification: {
-          title: content.title,
-          body: content.body,
-        },
-        data: {
-          deep_link: content.deep_link,
-          campaign_type: "consumer",
-        },
-        tokens: batch,
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-
-      totalSent += response.successCount;
-      totalFailed += response.failureCount;
-
-      // Collect failed tokens for cleanup
-      response.responses.forEach((resp, idx) => {
-        if (!resp.success) {
-          failedTokens.push(batch[idx]);
-          console.error(`Push failed for token: ${resp.error?.message}`);
-        }
-      });
-
-      console.log(
-        `Batch ${Math.floor(i / FCM_BATCH_SIZE) + 1}: ` +
-        `${response.successCount} sent, ${response.failureCount} failed`
-      );
-    } catch (error) {
-      console.error(`Error sending push batch:`, error);
-      totalFailed += batch.length;
-      failedTokens.push(...batch);
-    }
-  }
-
-  return { sent: totalSent, failed: totalFailed, failedTokens };
+  // Topic sends deliver to all subscribers — report total active users as recipients
+  return { sent: users.length, failed: 0, failedTokens: [] };
 }
 
 // ============================================================================
@@ -209,8 +165,7 @@ export async function sendPushNotifications(
  * Generate HTML email from campaign content
  */
 export function generateEmailHtml(
-  templateData: EmailTemplateData,
-  promotionsMap: Map<string, PromotionData>
+  templateData: EmailTemplateData
 ): string {
   const sectionsHtml = templateData.sections
     .map((section) => {
@@ -365,7 +320,7 @@ export async function sendEmailCampaign(
     footer_text: content.footer_text,
   };
 
-  const htmlContent = generateEmailHtml(templateData, promotionsMap);
+  const htmlContent = generateEmailHtml(templateData);
 
   let totalSent = 0;
   let totalFailed = 0;
@@ -531,9 +486,7 @@ export async function sendCampaign(
       await configureInAppMessage(campaignId, content, expiresAt);
 
       // Count eligible users
-      const eligibleCount = users.filter(
-        (u) => u.push_notifications_enabled
-      ).length;
+      const eligibleCount = getPushEligibleUsers(users).length;
       result.total_recipients = eligibleCount;
       break;
     }
@@ -566,14 +519,14 @@ export async function cleanupInvalidTokens(
     try {
       const usersWithToken = await getDb()
         .collection("users")
-        .where("notification_token", "==", token)
+        .where("device_notification_token", "==", token)
         .get();
 
       for (const doc of usersWithToken.docs) {
         await doc.ref.update({
-          notification_token: FieldValue.delete(),
-          notification_token_invalid: true,
-          notification_token_invalid_at:
+          device_notification_token: FieldValue.delete(),
+          device_notification_token_invalid: true,
+          device_notification_token_invalid_at:
             FieldValue.serverTimestamp(),
         });
         cleaned++;
