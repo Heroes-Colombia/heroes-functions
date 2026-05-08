@@ -17,7 +17,7 @@ import {
   cleanupInvalidTokens,
   SendResult,
 } from "./helpers/batchSending";
-import { updateEnterpriseRotation } from "./helpers/enterpriseRotation";
+import { updateEnterpriseRotation, updateGeneralRotation } from "./helpers/enterpriseRotation";
 import { PushContent, EmailContent, InAppContent } from "./helpers/claudeApi";
 
 // ============================================================================
@@ -53,6 +53,7 @@ interface CampaignDocument {
   email_content?: EmailContent;
   content_sources: {
     enterprise_businesses: string[];
+    rotation_businesses?: string[];
   };
   analytics: {
     total_recipients: number;
@@ -206,14 +207,16 @@ async function executeSend(
 
     await updateCampaignWithResults(campaignRef, campaign, result);
 
-    if (
-      campaign.content_sources.enterprise_businesses &&
-      campaign.content_sources.enterprise_businesses.length > 0
-    ) {
+    if (campaign.content_sources.enterprise_businesses?.length > 0) {
       await updateEnterpriseRotation(
         campaign.content_sources.enterprise_businesses,
         campaignId
       );
+    }
+
+    const rotationBusinesses = campaign.content_sources.rotation_businesses ?? [];
+    if (rotationBusinesses.length > 0) {
+      await updateGeneralRotation(rotationBusinesses, campaignId);
     }
 
     if (result.failed_tokens.length > 0) {

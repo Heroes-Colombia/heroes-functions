@@ -36,6 +36,12 @@ export interface ContentContext {
     name: string;
     category: string;
   }>;
+  // Non-enterprise businesses selected by rotation (least-recently-featured first)
+  rotationBusinesses: Array<{
+    id: string;
+    name: string;
+    category: string;
+  }>;
   currentDate: string;
   specialOccasion?: string;
 }
@@ -243,14 +249,21 @@ function buildPushPrompt(
   category: ContentCategory,
   tone: Tone
 ): string {
-  const promotionsList = context.topPromotions
-    .slice(0, 5)
-    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% descuento)`)
-    .join("\n");
+  const hasNewBusinesses = context.newBusinesses.length > 0;
 
   const newBusinessesList = context.newBusinesses
     .slice(0, 3)
     .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const rotationList = context.rotationBusinesses
+    .slice(0, 3)
+    .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const promotionsList = context.topPromotions
+    .slice(0, 5)
+    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% descuento)`)
     .join("\n");
 
   return `Genera una notificación push para Heroes Colombia.
@@ -260,13 +273,15 @@ TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-DATOS DISPONIBLES:
+${hasNewBusinesses ? `⚠️ PRIORIDAD MÁXIMA — NEGOCIOS NUEVOS:
+Estos negocios acaban de unirse a Heroes Colombia. DEBES mencionarlos en la notificación.
+${newBusinessesList}
 
-TOP PROMOCIONES:
+` : ""}NEGOCIOS DESTACADOS DE ESTA SEMANA (seleccionados por rotación justa):
+${rotationList || "No hay negocios en rotación"}
+
+PROMOCIONES POPULARES (contexto adicional):
 ${promotionsList || "No hay promociones disponibles"}
-
-NEGOCIOS NUEVOS:
-${newBusinessesList || "No hay negocios nuevos"}
 
 FORMATO DE SALIDA (JSON):
 {
@@ -274,8 +289,8 @@ FORMATO DE SALIDA (JSON):
   "body": "Máx 120 caracteres, llamada a la acción convincente"
 }
 
-Genera contenido que coincida con la categoría (${category}). Sé creativo y suena natural sin palabras que suenen forzadas.
-Retorna SOLO el JSON, sin explicación.`;
+${hasNewBusinesses ? "El mensaje DEBE destacar los negocios nuevos — es su primera aparición en la app." : "Menciona los negocios destacados de esta semana."}
+Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
 }
 
 function buildInAppPrompt(
@@ -283,15 +298,45 @@ function buildInAppPrompt(
   category: ContentCategory,
   tone: Tone
 ): string {
+  const hasNewBusinesses = context.newBusinesses.length > 0;
   const topPromotion = context.topPromotions[0];
   const featuredPromotions = context.topPromotions.slice(0, 5).map((p) => p.id);
 
+  const newBusinessesList = context.newBusinesses
+    .slice(0, 3)
+    .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const rotationList = context.rotationBusinesses
+    .slice(0, 3)
+    .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const buttonAction = topPromotion
+    ? `heroescolombia://promotion?id=${topPromotion.id}`
+    : "heroescolombia://promotions";
+
+  const buttonTextHint = topPromotion
+    ? `Texto corto que invite a ver la promoción de ${topPromotion.business_name} (ej: 'Ver oferta', 'Aprovechar descuento')`
+    : "Texto corto que invite a explorar (ej: 'Explorar descuentos', 'Ver ofertas')";
+
   return `Genera un mensaje in-app para Heroes Colombia.
+
+IMPORTANTE: Este mensaje se muestra DENTRO de la app a usuarios que ya la tienen instalada y están usándola.
+NUNCA uses frases como "descarga la app", "abre la app", "instala", ni ningún llamado a descargar o abrir la aplicación.
+El llamado a la acción debe invitar al usuario a explorar, aprovechar o descubrir contenido YA DISPONIBLE dentro de la app.
 
 CATEGORÍA DE CONTENIDO: ${category}
 TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
+
+${hasNewBusinesses ? `⚠️ PRIORIDAD MÁXIMA — NEGOCIOS NUEVOS:
+Estos negocios acaban de unirse a Heroes Colombia. El mensaje DEBE girar alrededor de darles la bienvenida y motivar a los usuarios a conocerlos.
+${newBusinessesList}
+
+` : ""}NEGOCIOS DESTACADOS DE ESTA SEMANA (seleccionados por rotación justa):
+${rotationList || "No hay negocios en rotación"}
 
 PROMOCIÓN DESTACADA (para imagen):
 ${topPromotion ? `${topPromotion.business_name}: ${topPromotion.title} (${topPromotion.percentage}%)` : "Ninguna"}
@@ -302,12 +347,12 @@ FORMATO DE SALIDA (JSON):
   "body": "Descripción convincente (2-3 oraciones)",
   "image_url": "",
   "featured_promotions": ${JSON.stringify(featuredPromotions)},
-  "button_text": "Texto del botón de acción",
-  "button_action": "heroescolombia://promotions"
+  "button_text": "${buttonTextHint}",
+  "button_action": "${buttonAction}"
 }
 
-Genera contenido que coincida con la categoría (${category}). Sé creativo y suena natural sin palabras que suenen forzadas.
-Retorna SOLO el JSON, sin explicación.`;
+${hasNewBusinesses ? "El mensaje DEBE destacar los negocios nuevos — es su primera aparición ante los usuarios." : "Menciona los negocios destacados de esta semana."}
+Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
 }
 
 function buildEmailPrompt(

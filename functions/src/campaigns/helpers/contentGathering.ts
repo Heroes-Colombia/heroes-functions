@@ -10,6 +10,7 @@
 import { getDb } from "../../utils/firebase";
 import { Timestamp } from "firebase-admin/firestore"
 import { ContentContext } from "./claudeApi";
+import { getGeneralBusinessesToFeature } from "./enterpriseRotation";
 
 // ============================================================================
 // Types
@@ -43,12 +44,13 @@ interface BusinessData {
  * Gather all content needed for campaign generation
  */
 export async function gatherCampaignContent(): Promise<ContentContext> {
-  const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses] =
+  const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses, rotationBusinesses] =
     await Promise.all([
       getTopPromotionsByViews(20),
       getUnderPromotedPromotions(10),
       getEnterpriseBusinesses(),
       getNewBusinesses(7), // Last 7 days
+      getGeneralBusinessesToFeature(3), // Least-recently-featured non-enterprise businesses
     ]);
 
   return {
@@ -71,6 +73,11 @@ export async function gatherCampaignContent(): Promise<ContentContext> {
       category: b.categories[0] || "general",
     })),
     newBusinesses: newBusinesses.map((b) => ({
+      id: b.id,
+      name: b.name,
+      category: b.categories[0] || "general",
+    })),
+    rotationBusinesses: rotationBusinesses.map((b) => ({
       id: b.id,
       name: b.name,
       category: b.categories[0] || "general",

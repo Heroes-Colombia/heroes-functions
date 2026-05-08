@@ -216,6 +216,109 @@ export async function getRotationStats(): Promise<{
   }
 }
 
+// ============================================================================
+// General Business Rotation (all plans, not just enterprise)
+// ============================================================================
+
+interface GeneralRotationData {
+  businesses: {
+    [businessId: string]: {
+      last_featured_at: Timestamp | null;
+      feature_count: number;
+    };
+  };
+  updated_at: Timestamp;
+}
+
+/**
+ * Get non-enterprise businesses to feature, prioritising those least recently shown.
+ * New businesses (never featured) always come first.
+ */
+export async function getGeneralBusinessesToFeature(
+  count: number = 3
+): Promise<BusinessForRotation[]> {
+  try {
+    const rotationRef = getDb()
+      .collection("campaigns_metadata")
+      .doc("general_rotation");
+    const rotationDoc = await rotationRef.get();
+
+    const rotationData: GeneralRotationData["businesses"] = rotationDoc.exists
+      ? ((rotationDoc.data() as GeneralRotationData).businesses ?? {})
+      : {};
+
+    const snapshot = await getDb()
+      .collection("businesses")
+      .where("status", "==", "active")
+      .get();
+
+    if (snapshot.empty) return [];
+
+    const businesses: BusinessForRotation[] = snapshot.docs
+      .filter((doc) => doc.data().plan !== "enterprise")
+      .map((doc) => {
+        const data = doc.data();
+        const info = rotationData[doc.id];
+        return {
+          id: doc.id,
+          name: data.name,
+          categories: data.categories || [],
+          last_featured_at: info?.last_featured_at?.toDate() ?? null,
+          feature_count: info?.feature_count ?? 0,
+        };
+      });
+
+    // Never-featured first, then oldest-featured
+    businesses.sort((a, b) => {
+      if (!a.last_featured_at && b.last_featured_at) return -1;
+      if (a.last_featured_at && !b.last_featured_at) return 1;
+      if (!a.last_featured_at && !b.last_featured_at) return a.feature_count - b.feature_count;
+      return a.last_featured_at!.getTime() - b.last_featured_at!.getTime();
+    });
+
+    return businesses.slice(0, count);
+  } catch (error) {
+    console.error("Error getting general businesses for rotation:", error);
+    return [];
+  }
+}
+
+/**
+ * Update general rotation tracking after a campaign is sent.
+ */
+export async function updateGeneralRotation(
+  businessIds: string[],
+  campaignId: string
+): Promise<void> {
+  if (businessIds.length === 0) return;
+
+  try {
+    const rotationRef = getDb()
+      .collection("campaigns_metadata")
+      .doc("general_rotation");
+    const rotationDoc = await rotationRef.get();
+
+    const rotationData: GeneralRotationData["businesses"] = rotationDoc.exists
+      ? ((rotationDoc.data() as GeneralRotationData).businesses ?? {})
+      : {};
+
+    const now = Timestamp.now();
+    for (const id of businessIds) {
+      const existing = rotationData[id] ?? { last_featured_at: null, feature_count: 0 };
+      rotationData[id] = {
+        last_featured_at: now,
+        feature_count: existing.feature_count + 1,
+      };
+    }
+
+    await rotationRef.set({ businesses: rotationData, updated_at: now }, { merge: true });
+    console.log(`Updated general rotation for ${businessIds.length} businesses in campaign ${campaignId}`);
+  } catch (error) {
+    console.error("Error updating general rotation:", error);
+    throw error;
+  }
+}
+
 /**
  * Reset rotation data (admin function)
  */

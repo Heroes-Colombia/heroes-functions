@@ -126,13 +126,12 @@ export function getEmailEligibleUsers(users: ActiveUser[]): ActiveUser[] {
 // Push Notification Sending
 // ============================================================================
 
-// FCM topic all consumer users are subscribed to on login
+// FCM topic all consumer users subscribe to on login (covers both iOS and Android)
 const CONSUMER_TOPIC = "user";
 
 /**
- * Send push notifications to all users via the "user" FCM topic.
- * Every consumer subscribes to this topic on login in the Flutter app,
- * so FCM handles fan-out without needing individual tokens.
+ * Send push notifications to all consumer users via the "user" FCM topic.
+ * Every consumer subscribes to this topic on login, covering both iOS and Android.
  */
 export async function sendPushNotifications(
   content: PushContent,
@@ -383,8 +382,9 @@ export async function sendEmailCampaign(
 // ============================================================================
 
 /**
- * Configure in-app message by storing it in Firestore
- * The mobile app will fetch this on launch
+ * Configure in-app message by storing it in Firestore, then send a silent
+ * FCM data message to iOS and Android topics so the app is triggered to
+ * fetch and display the message immediately (not just on next cold launch).
  */
 export async function configureInAppMessage(
   campaignId: string,
@@ -414,6 +414,20 @@ export async function configureInAppMessage(
   });
 
   console.log(`In-app message configured for campaign: ${campaignId}`);
+
+  // Send a silent (data-only) FCM message so the app knows to fetch and
+  // display the in-app message right away, without showing a notification.
+  await admin.messaging().send({
+    data: {
+      type: "inapp_message",
+      campaign_id: campaignId,
+    },
+    android: { priority: "normal" },
+    apns: { headers: { "apns-priority": "5" } },
+    topic: CONSUMER_TOPIC,
+  });
+
+  console.log(`Silent in-app trigger sent to topic "${CONSUMER_TOPIC}"`);
 }
 
 // ============================================================================

@@ -110,6 +110,7 @@ interface CampaignDocument {
     under_promoted: string[];
     enterprise_businesses: string[];
     new_businesses: string[];
+    rotation_businesses: string[];
     categories: string[];
   };
   gemini_model: string;
@@ -188,6 +189,7 @@ export const generatePushCampaign = functions
         under_promoted: content.underPromoted.map((p) => p.id),
         enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
         new_businesses: content.newBusinesses.map((b) => b.id),
+        rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
       },
       gemini_model: "gemini-2.5-flash-lite",
@@ -291,6 +293,7 @@ export const generateInAppCampaign = functions
         under_promoted: content.underPromoted.map((p) => p.id),
         enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
         new_businesses: content.newBusinesses.map((b) => b.id),
+        rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
       },
       gemini_model: "gemini-2.5-flash-lite",
@@ -395,6 +398,7 @@ export const generateEmailCampaign = functions
         under_promoted: content.underPromoted.map((p) => p.id),
         enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
         new_businesses: content.newBusinesses.map((b) => b.id),
+        rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
       },
       gemini_model: "gemini-2.5-flash-lite",
@@ -505,6 +509,7 @@ export async function manuallyGenerateCampaign(
         under_promoted: content.underPromoted.map((p) => p.id),
         enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
         new_businesses: content.newBusinesses.map((b) => b.id),
+        rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
       },
       gemini_model: "gemini-2.5-flash-lite",
