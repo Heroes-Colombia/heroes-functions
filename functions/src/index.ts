@@ -44,6 +44,9 @@ import {
 } from "./campaigns/sendApprovedCampaign";
 import campaignApiRouter from "./campaigns/campaignApi";
 
+// User Notifications Functions
+import { onUserSignup } from "./user-notifications/welcomeEmail";
+
 // Business Notifications Functions - Automated Engagement System (Phase 5)
 import {
   checkExpiredPromotions,
@@ -412,6 +415,9 @@ exports.checkCtaClicks = checkCtaClicks;
 // ============================================================================
 // Firestore Triggers - Business Notifications (Automated Engagement System Phase 5)
 // ============================================================================
+
+// Send welcome email when a new user signs up
+exports.onUserSignup = onUserSignup;
 
 // Send notification when a user adds a business to favourites
 exports.onNewFavourite = onNewFavourite;
