@@ -325,52 +325,33 @@ export async function sendEmailCampaign(
   let totalFailed = 0;
   const failedEmails: string[] = [];
 
-  // Send emails in batches
+  // Send emails in batches of 100 using Resend's sendBatch API (single API call per batch)
   for (let i = 0; i < eligibleUsers.length; i += EMAIL_BATCH_SIZE) {
     const batch = eligibleUsers.slice(i, i + EMAIL_BATCH_SIZE);
 
-    // Send each email in the batch
-    const sendPromises = batch.map(async (user) => {
-      try {
-        const personalizedSubject = user.first_name
-          ? `${user.first_name}, ${content.subject}`
-          : content.subject;
+    const batchPayload = batch.map((user) => ({
+      from: EMAIL_FROM,
+      to: user.email,
+      replyTo: EMAIL_REPLY_TO,
+      subject: user.first_name ? `${user.first_name}, ${content.subject}` : content.subject,
+      html: htmlContent,
+    }));
 
-        await resend.emails.send({
-          from: EMAIL_FROM,
-          to: user.email,
-          replyTo: EMAIL_REPLY_TO,
-          subject: personalizedSubject,
-          html: htmlContent,
-        });
+    try {
+      const { data, error } = await resend.batch.send(batchPayload);
 
-        return { success: true, email: user.email };
-      } catch (error) {
-        console.error(`Failed to send email to ${user.email}:`, error);
-        return { success: false, email: user.email };
-      }
-    });
-
-    const results = await Promise.all(sendPromises);
-
-    for (const result of results) {
-      if (result.success) {
-        totalSent++;
+      if (error) {
+        console.error(`Batch ${Math.floor(i / EMAIL_BATCH_SIZE) + 1} failed:`, error);
+        totalFailed += batch.length;
+        failedEmails.push(...batch.map((u) => u.email));
       } else {
-        totalFailed++;
-        failedEmails.push(result.email);
+        totalSent += data?.length ?? batch.length;
+        console.log(`Batch ${Math.floor(i / EMAIL_BATCH_SIZE) + 1}: ${data?.length ?? batch.length} sent`);
       }
-    }
-
-    console.log(
-      `Email batch ${Math.floor(i / EMAIL_BATCH_SIZE) + 1}: ` +
-      `${results.filter((r) => r.success).length} sent, ` +
-      `${results.filter((r) => !r.success).length} failed`
-    );
-
-    // Rate limiting - wait between batches
-    if (i + EMAIL_BATCH_SIZE < eligibleUsers.length) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+    } catch (error) {
+      console.error(`Batch ${Math.floor(i / EMAIL_BATCH_SIZE) + 1} error:`, error);
+      totalFailed += batch.length;
+      failedEmails.push(...batch.map((u) => u.email));
     }
   }
 

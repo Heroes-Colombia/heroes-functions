@@ -14,6 +14,28 @@ import * as admin from "firebase-admin"
 import * as functions from "firebase-functions/v1"
 import { Timestamp, FieldValue } from "firebase-admin/firestore"
 
+async function wasTrialWarningAlreadySent(businessId: string): Promise<boolean> {
+  const snapshot = await admin.firestore()
+    .collection("business_notifications")
+    .where("business_id", "==", businessId)
+    .where("notification_type", "==", "trial_expiring_warning")
+    .where("status", "==", "sent")
+    .limit(1)
+    .get();
+  return !snapshot.empty;
+}
+
+async function logTrialWarningNotification(businessId: string, recipientEmail: string): Promise<void> {
+  await admin.firestore().collection("business_notifications").add({
+    business_id: businessId,
+    notification_type: "trial_expiring_warning",
+    status: "sent",
+    sent_at: FieldValue.serverTimestamp(),
+    created_at: FieldValue.serverTimestamp(),
+    recipient_email: recipientEmail,
+  });
+}
+
 // Email configuration (uses Resend)
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const FROM_EMAIL = "Heroes Colombia <noreply@heroescolombia.com>"
@@ -138,13 +160,17 @@ function getTrialExpiredEmailHtml(businessName: string, email: string): string {
       </div>
 
       <div style="text-align: center;">
-        <a href="https://app.heroescolombia.com/business/dashboard/plans" class="cta-button">
+        <a href="https://mpago.li/2VW9tCu" class="cta-button">
           Activar Plan Fundador
+        </a>
+        <br>
+        <a href="https://app.heroescolombia.com/business/dashboard" style="display: inline-block; margin-top: 12px; color: #5d7a3a; font-size: 14px; text-decoration: underline;">
+          Ir al Portal Web
         </a>
       </div>
 
       <p style="font-size: 14px; color: #6b7280; margin-top: 20px;">
-        Si tienes alguna pregunta, no dudes en contactarnos respondiendo a este correo o escribiendonos por WhatsApp.
+        Si tienes alguna pregunta, puedes escribirnos por WhatsApp.
       </p>
     </div>
     <div class="footer">
@@ -212,8 +238,12 @@ function getTrialExpiringEmailHtml(businessName: string, email: string, daysRema
       </ul>
 
       <div style="text-align: center;">
-        <a href="https://app.heroescolombia.com/business/dashboard/plans" class="cta-button">
+        <a href="https://mpago.li/2VW9tCu" class="cta-button">
           Activar Plan Fundador - $480,000/año
+        </a>
+        <br>
+        <a href="https://app.heroescolombia.com/business/dashboard" style="display: inline-block; margin-top: 12px; color: #5d7a3a; font-size: 14px; text-decoration: underline;">
+          Ir al Portal Web
         </a>
       </div>
 
@@ -346,13 +376,22 @@ export async function sendExpiringWarnings(): Promise<{ warned: number; errors: 
       })
 
       try {
+        // Guard against double-send (Cloud Scheduler can deliver more than once)
+        if (await wasTrialWarningAlreadySent(business.id)) {
+          console.log(`[expiringWarnings] Warning already sent for ${business.id}, skipping`)
+          continue
+        }
+
         // Send warning email
         if (business.email) {
-          await sendEmail(
+          const sent = await sendEmail(
             business.email,
             `${business.name}, tu prueba vence en ${daysRemaining} dias`,
             getTrialExpiringEmailHtml(business.name, business.email, daysRemaining, formattedEndDate)
           )
+          if (sent) {
+            await logTrialWarningNotification(business.id, business.email)
+          }
         }
 
         console.log(`[expiringWarnings] Sent warning for business: ${business.id} (${business.name})`)

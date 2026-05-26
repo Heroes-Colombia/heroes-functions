@@ -34,6 +34,7 @@ import {
   generatePushCampaign,
   generateInAppCampaign,
   generateEmailCampaign,
+  generateMidMonthEmailCampaign,
   manuallyGenerateCampaign,
 } from "./campaigns/generateCampaigns";
 
@@ -46,6 +47,13 @@ import campaignApiRouter from "./campaigns/campaignApi";
 
 // User Notifications Functions
 import { onUserSignup } from "./user-notifications/welcomeEmail";
+
+// Business Onboarding Functions
+import {
+  onBusinessRegistration,
+  onBusinessPaymentConfirmed,
+  businessDripSequence,
+} from "./business-onboarding";
 
 // Business Notifications Functions - Automated Engagement System (Phase 5)
 import {
@@ -381,8 +389,11 @@ exports.generatePushCampaign = generatePushCampaign;
 // Generate in-app campaign every Friday at 8 AM Colombia time
 exports.generateInAppCampaign = generateInAppCampaign;
 
-// Generate email campaign on 1st and 15th at 8 AM Colombia time
+// Generate email campaign on 1st of month (monthly recap)
 exports.generateEmailCampaign = generateEmailCampaign;
+
+// Generate mid-month email campaign on 15th of month (what's available now)
+exports.generateMidMonthEmailCampaign = generateMidMonthEmailCampaign;
 
 // ============================================================================
 // Firestore Triggers - Campaign Sending (Automated Engagement System Phase 4)
@@ -419,6 +430,19 @@ exports.checkCtaClicks = checkCtaClicks;
 // Send welcome email when a new user signs up
 exports.onUserSignup = onUserSignup;
 
+// ============================================================================
+// Business Onboarding (registration, payment confirmation, drip sequences)
+// ============================================================================
+
+// Send welcome email when a new business registers
+exports.onBusinessRegistration = onBusinessRegistration;
+
+// Send payment confirmed email when admin approves trial or manual subscription
+exports.onBusinessPaymentConfirmed = onBusinessPaymentConfirmed;
+
+// Daily drip: pre-payment reminders (days 1/2/5/7) + post-payment onboarding (days 1/3/7/14)
+exports.businessDripSequence = businessDripSequence;
+
 // Send notification when a user adds a business to favourites
 exports.onNewFavourite = onNewFavourite;
 
@@ -444,5 +468,5 @@ exports.sendTrialExpiringWarnings = sendTrialExpiringWarnings;
 // - CLOUD_TASKS_SECRET: verifies incoming Cloud Tasks requests in /campaigns/internal/execute-send
 // - RESEND_API_KEY: used by manuallySendCampaign when sending email campaigns
 exports.widgets = functionsV1
-  .runWith({ secrets: ["CLOUD_TASKS_SECRET", "RESEND_API_KEY"] })
+  .runWith({ secrets: ["CLOUD_TASKS_SECRET", "RESEND_API_KEY"], timeoutSeconds: 300 })
   .https.onRequest(app);

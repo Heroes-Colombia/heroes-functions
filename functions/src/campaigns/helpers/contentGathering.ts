@@ -41,16 +41,67 @@ interface BusinessData {
 // ============================================================================
 
 /**
- * Gather all content needed for campaign generation
+ * Gather content for mid-month email (15th) — current best promotions, last 7 days context
  */
 export async function gatherCampaignContent(): Promise<ContentContext> {
   const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses, rotationBusinesses] =
     await Promise.all([
-      getTopPromotionsByViews(20),
+      getTopPromotionsByViews(20, 7),
       getUnderPromotedPromotions(10),
       getEnterpriseBusinesses(),
-      getNewBusinesses(7), // Last 7 days
-      getGeneralBusinessesToFeature(3), // Least-recently-featured non-enterprise businesses
+      getNewBusinesses(14),
+      getGeneralBusinessesToFeature(3),
+    ]);
+
+  return {
+    topPromotions: topPromotions.map((p) => ({
+      id: p.id,
+      title: p.title,
+      percentage: p.percentage,
+      business_name: p.business_name || "Negocio",
+      category: p.category || "general",
+    })),
+    underPromoted: underPromoted.map((p) => ({
+      id: p.id,
+      title: p.title,
+      percentage: p.percentage,
+      business_name: p.business_name || "Negocio",
+    })),
+    enterpriseBusinesses: enterpriseBusinesses.map((b) => ({
+      id: b.id,
+      name: b.name,
+      category: b.categories[0] || "general",
+    })),
+    newBusinesses: newBusinesses.map((b) => ({
+      id: b.id,
+      name: b.name,
+      category: b.categories[0] || "general",
+    })),
+    rotationBusinesses: rotationBusinesses.map((b) => ({
+      id: b.id,
+      name: b.name,
+      category: b.categories[0] || "general",
+    })),
+    currentDate: new Date().toLocaleDateString("es-CO", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    }),
+  };
+}
+
+/**
+ * Gather content for the 1st-of-month recap email — 30-day lookback for new businesses and top promotions
+ */
+export async function gatherRecapContent(): Promise<ContentContext> {
+  const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses, rotationBusinesses] =
+    await Promise.all([
+      getTopPromotionsByViews(20, 30),
+      getUnderPromotedPromotions(10),
+      getEnterpriseBusinesses(),
+      getNewBusinesses(30),
+      getGeneralBusinessesToFeature(3),
     ]);
 
   return {
@@ -99,17 +150,16 @@ export async function gatherCampaignContent(): Promise<ContentContext> {
  * Get top N promotions by view count from analytics_events
  * (Query analytics_events, NOT promotions.views_count as per plan)
  */
-async function getTopPromotionsByViews(limit: number): Promise<PromotionData[]> {
+async function getTopPromotionsByViews(limit: number, daysAgo: number = 7): Promise<PromotionData[]> {
   try {
-    // Get view events from the last 2 days
-    const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysAgo);
 
     const viewEvents = await getDb()
       .collection("analytics_events")
       .where("event_type", "==", "view")
       .where("entity_type", "==", "promotion")
-      .where("timestamp", ">", Timestamp.fromDate(twoDaysAgo))
+      .where("timestamp", ">", Timestamp.fromDate(cutoff))
       .get();
 
     // Aggregate views by promotion_id
@@ -251,6 +301,7 @@ async function fetchPromotionsWithBusinessInfo(
       for (const doc of businessDocs) {
         if (doc.exists) {
           const data = doc.data()!;
+          if (!["active", "trial"].includes(data.subscription?.status)) continue;
           businesses.set(doc.id, {
             name: data.name || "Negocio",
             category: data.categories?.[0] || "general",
@@ -259,7 +310,7 @@ async function fetchPromotionsWithBusinessInfo(
       }
     }
 
-    // Build results with business info from cache
+    // Build results with business info from cache (skips promotions from expired-subscription businesses)
     for (const doc of promotionDocs) {
       if (!doc.exists) continue;
 
@@ -267,6 +318,8 @@ async function fetchPromotionsWithBusinessInfo(
       const businessInfo = data.business_id
         ? businesses.get(data.business_id)
         : null;
+
+      if (!businessInfo) continue;
 
       results.push({
         id: doc.id,
@@ -298,6 +351,7 @@ async function getEnterpriseBusinesses(): Promise<BusinessData[]> {
       .collection("businesses")
       .where("plan", "==", "enterprise")
       .where("status", "==", "active")
+      .where("subscription.status", "in", ["active", "trial"])
       .get();
 
     return businesses.docs.map((doc) => ({
@@ -329,13 +383,15 @@ async function getNewBusinesses(daysAgo: number): Promise<BusinessData[]> {
       .limit(10)
       .get();
 
-    return businesses.docs.map((doc) => ({
-      id: doc.id,
-      name: doc.data().name,
-      categories: doc.data().categories || [],
-      plan: doc.data().plan,
-      created_at: doc.data().created_at,
-    }));
+    return businesses.docs
+      .filter((doc) => ["active", "trial"].includes(doc.data().subscription?.status))
+      .map((doc) => ({
+        id: doc.id,
+        name: doc.data().name,
+        categories: doc.data().categories || [],
+        plan: doc.data().plan,
+        created_at: doc.data().created_at,
+      }));
   } catch (error) {
     console.error("Error getting new businesses:", error);
     return [];

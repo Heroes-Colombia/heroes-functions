@@ -14,7 +14,6 @@ import {
   getBusinessInfo,
   sendBusinessNotification,
   wasRecentlySent,
-  isEmailNotificationEnabled,
 } from "./emailSender";
 import {
   getNewFavouriteEmail,
@@ -56,12 +55,6 @@ export const onNewFavourite = functions
 
     try {
       for (const businessId of newlyAdded) {
-        // Check if email notifications are enabled
-        if (!(await isEmailNotificationEnabled(businessId))) {
-          console.log(`Email notifications disabled for ${businessId}`);
-          continue;
-        }
-
         // Check if we recently sent a new_favourite notification (24 hour cooldown)
         // This prevents spamming if multiple users favourite in quick succession
         if (await wasRecentlySent(businessId, "new_favourite", 24)) {
@@ -131,12 +124,6 @@ export const onCtaClick = functions
     console.log(`CTA click (${ctaType}) for business: ${businessId}`);
 
     try {
-      // Check if email notifications are enabled
-      if (!(await isEmailNotificationEnabled(businessId))) {
-        console.log(`Email notifications disabled for ${businessId}`);
-        return null;
-      }
-
       // Check if we recently sent a cta_clicked notification (2 hour cooldown)
       if (await wasRecentlySent(businessId, "cta_clicked", 2)) {
         console.log(`Recently sent cta_clicked to ${businessId}, skipping`);
@@ -219,10 +206,6 @@ export const checkCtaClicks = functions
       for (const [businessId, clicks] of businessClicks) {
         // Skip if recently notified
         if (await wasRecentlySent(businessId, "cta_clicked", 6)) {
-          continue;
-        }
-
-        if (!(await isEmailNotificationEnabled(businessId))) {
           continue;
         }
 

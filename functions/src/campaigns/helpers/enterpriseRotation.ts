@@ -55,11 +55,12 @@ export async function getEnterpriseBusinessesToFeature(
       rotationData = (rotationDoc.data() as EnterpriseRotationData).businesses || {};
     }
 
-    // Get all active enterprise businesses
+    // Get all active enterprise businesses with active/trial subscriptions
     const enterpriseBusinesses = await getDb()
       .collection("businesses")
       .where("plan", "==", "enterprise")
       .where("status", "==", "active")
+      .where("subscription.status", "in", ["active", "trial"])
       .get();
 
     if (enterpriseBusinesses.empty) {
@@ -181,6 +182,7 @@ export async function getRotationStats(): Promise<{
       .collection("businesses")
       .where("plan", "==", "enterprise")
       .where("status", "==", "active")
+      .where("subscription.status", "in", ["active", "trial"])
       .count()
       .get();
 
@@ -250,6 +252,7 @@ export async function getGeneralBusinessesToFeature(
     const snapshot = await getDb()
       .collection("businesses")
       .where("status", "==", "active")
+      .where("subscription.status", "in", ["active", "trial"])
       .get();
 
     if (snapshot.empty) return [];

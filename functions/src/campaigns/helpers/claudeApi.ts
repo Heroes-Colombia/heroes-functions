@@ -77,25 +77,33 @@ export type Tone =
   | "urgency"
   | "celebratory"
   | "professional_patriotic";
+export type EmailType = "recap" | "midmonth";
 
 // ============================================================================
 // System Prompts
 // ============================================================================
 
 const SYSTEM_PROMPTS = {
-  consumerCampaign: `Eres el asistente de marketing de Heroes Colombia, una app que conecta a todos los miembros de las fuerzas armadas de Colombia (ejercito, policia nacional, armada, y fuerza aeroespacial)
-  y sus familias con descuentos exclusivos de negocios locales a nivel nacional.
+  consumerCampaign: `Eres Jonathan, el fundador de Heroes Colombia — una app que conecta a militares activos, retirados, policías y sus familias con descuentos exclusivos de negocios en todo Colombia.
 
-Tu trabajo es generar contenido de campañas en ESPAÑOL COLOMBIANO natural y auténtico.
+Escribes emails que se sienten como mensajes personales, no campañas de marketing masivas. Las personas que te leen sirven o han servido a Colombia. Son directas, ocupadas, y distinguen inmediatamente un email genuino de uno genérico.
 
-Reglas:
-- Siempre en español colombiano (tuteo, no voseo)
-- Tono cálido y cercano, que reconozca el servicio de los héroes
-- Menciona descuentos y promociones específicas cuando estén disponibles
-- Incluye emojis relevantes pero sin exagerar
-- El contenido debe motivar a abrir la app
-- NUNCA inventes porcentajes o nombres de negocios que no estén en el contexto
-- Responde SOLO con el JSON solicitado, sin texto adicional ni markdown`,
+QUIÉNES SON:
+- Militares activos y retirados, policías, aeronáutica, armada y sus familias
+- Valoran el reconocimiento concreto, no el halago vacío
+- Responden a mensajes que les dicen exactamente qué hay para ellos y por qué les conviene
+- No tienen tiempo para leer marketing — un email tiene que ganarse su atención en las primeras dos líneas
+
+REGLAS DE TONO:
+- Escribe como si le mandaras un mensaje a alguien que respetas y aprecias genuinamente
+- Usa tuteo natural ("te", "tu") — ni muy informal ni muy formal
+- Sé concreto: menciona negocios y promociones reales por nombre
+- PROHIBIDO: "¡No te lo pierdas!", "tiempo limitado", "oferta exclusiva", "aprovecha ahora", "¡increíble!", cualquier frase de publicidad genérica
+- Emojis con moderación (máx 2-3 por email) — solo si suman al mensaje, nunca para decorar
+- El asunto del email debe sonar como el de un mensaje personal, no un anuncio publicitario
+- NUNCA inventes datos, porcentajes o nombres que no estén en el contexto dado
+
+FORMATO: Responde SOLO con el JSON solicitado, sin texto adicional ni markdown.`,
 
   platformUpdate: `Eres el equipo de producto de Heroes Colombia. Generas actualizaciones mensuales sobre mejoras de la plataforma en español colombiano natural y motivador.
 
@@ -196,10 +204,13 @@ export async function generateInAppContent(
 export async function generateEmailContent(
   context: ContentContext,
   category: ContentCategory,
-  tone: Tone
+  tone: Tone,
+  emailType: EmailType = "midmonth"
 ): Promise<EmailContent> {
   const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
-  const prompt = buildEmailPrompt(context, category, tone);
+  const prompt = emailType === "recap"
+    ? buildEmailRecapPrompt(context, tone)
+    : buildEmailMidMonthPrompt(context, tone);
 
   try {
     const result = await model.generateContent(prompt);
@@ -322,75 +333,158 @@ function buildInAppPrompt(
 
   return `Genera un mensaje in-app para Heroes Colombia.
 
-IMPORTANTE: Este mensaje se muestra DENTRO de la app a usuarios que ya la tienen instalada y están usándola.
-NUNCA uses frases como "descarga la app", "abre la app", "instala", ni ningún llamado a descargar o abrir la aplicación.
-El llamado a la acción debe invitar al usuario a explorar, aprovechar o descubrir contenido YA DISPONIBLE dentro de la app.
+⛔ RESTRICCIÓN ABSOLUTA — LEE ESTO PRIMERO:
+El usuario YA tiene la app abierta. Está leyendo este mensaje DENTRO de la app.
+NUNCA escribas: "descarga", "instala", "abre la app", "descúbrela en la app", "disponible en la app", ni ninguna variación.
+Si el mensaje contiene cualquiera de esas palabras, la respuesta es inválida.
+El CTA debe invitar a explorar o aprovechar algo que el usuario ya tiene frente a él.
 
-CATEGORÍA DE CONTENIDO: ${category}
+CATEGORÍA: ${category}
 TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-${hasNewBusinesses ? `⚠️ PRIORIDAD MÁXIMA — NEGOCIOS NUEVOS:
-Estos negocios acaban de unirse a Heroes Colombia. El mensaje DEBE girar alrededor de darles la bienvenida y motivar a los usuarios a conocerlos.
+${hasNewBusinesses ? `⚠️ PRIORIDAD — NEGOCIOS NUEVOS (menciónalos en el mensaje):
 ${newBusinessesList}
 
-` : ""}NEGOCIOS DESTACADOS DE ESTA SEMANA (seleccionados por rotación justa):
+` : ""}NEGOCIOS DESTACADOS ESTA SEMANA:
 ${rotationList || "No hay negocios en rotación"}
 
-PROMOCIÓN DESTACADA (para imagen):
+PROMOCIÓN DESTACADA:
 ${topPromotion ? `${topPromotion.business_name}: ${topPromotion.title} (${topPromotion.percentage}%)` : "Ninguna"}
 
 FORMATO DE SALIDA (JSON):
 {
-  "title": "Título llamativo",
-  "body": "Descripción convincente (2-3 oraciones)",
+  "title": "Máx 50 caracteres, directo, con emoji",
+  "body": "Máx 120 caracteres, menciona negocios reales por nombre, sin jerga de marketing",
   "image_url": "",
   "featured_promotions": ${JSON.stringify(featuredPromotions)},
   "button_text": "${buttonTextHint}",
   "button_action": "${buttonAction}"
 }
 
-${hasNewBusinesses ? "El mensaje DEBE destacar los negocios nuevos — es su primera aparición ante los usuarios." : "Menciona los negocios destacados de esta semana."}
-Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
+${hasNewBusinesses ? "El mensaje debe girar alrededor de los negocios nuevos — es su primera aparición." : "Menciona los negocios destacados de esta semana."}
+Retorna SOLO el JSON, sin explicación.`;
 }
 
-function buildEmailPrompt(
-  context: ContentContext,
-  category: ContentCategory,
-  tone: Tone
-): string {
-  const promotionsList = context.topPromotions
-    .slice(0, 10)
-    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}%)`)
+/**
+ * 1st of month: recap of the previous month — new businesses, top promotions, community growth.
+ * Tone: warm, celebratory, personal — like a founder sharing what he's proud of.
+ */
+function buildEmailRecapPrompt(context: ContentContext, tone: Tone): string {
+  const newBusinessesList = context.newBusinesses
+    .map((b) => `- ${b.name} (${b.category})`)
     .join("\n");
 
-  return `Genera una campaña de email para Heroes Colombia.
+  const topPromotionsList = context.topPromotions
+    .slice(0, 8)
+    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% de descuento)`)
+    .join("\n");
 
-CATEGORÍA DE CONTENIDO: ${category}
+  const promotionIds = context.topPromotions.slice(0, 6).map((p) => p.id);
+
+  return `Genera un email de resumen mensual para Heroes Colombia. Se envía el 1ro de cada mes.
+
+PROPÓSITO: Contarle al héroe qué pasó el mes anterior — qué negocios nuevos se unieron, qué promociones fueron las más populares — y celebrar que la comunidad sigue creciendo para ellos.
+
 TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-TOP PROMOCIONES:
-${promotionsList || "No hay promociones disponibles"}
+NEGOCIOS QUE SE UNIERON ESTE MES:
+${newBusinessesList || "Sin nuevos negocios este mes"}
+
+PROMOCIONES MÁS POPULARES DEL MES:
+${topPromotionsList || "No hay datos de promociones"}
+
+ESTRUCTURA DEL EMAIL (2-3 secciones):
+1. Apertura personal: menciona el mes que pasó con calidez, como quien comparte algo de lo que está orgulloso
+2. Novedades: los negocios nuevos que se unieron (menciona nombre y categoría, invita a conocerlos)
+3. Destacados del mes: las promociones más vistas — concreto, con nombre de negocio y descuento
+El cierre debe mirar hacia adelante con optimismo, sin frases de marketing
 
 FORMATO DE SALIDA (JSON):
 {
-  "subject": "Línea de asunto (convincente, personalizada)",
-  "preheader": "Texto de vista previa del email (máx 100 caracteres)",
+  "subject": "Asunto personal, como si fuera un mensaje tuyo directo (no un titular publicitario)",
+  "preheader": "Texto de vista previa, máx 90 caracteres, que complemente el asunto",
   "sections": [
     {
-      "headline": "Titular de la sección",
-      "promotions": ["promo_id_1", "promo_id_2"],
-      "cta_text": "Texto de llamada a la acción"
+      "headline": "Titular de sección (concreto y cálido, no genérico)",
+      "promotions": ${JSON.stringify(promotionIds.slice(0, 3))},
+      "cta_text": "Texto de CTA que invite a explorar (sin urgencia artificial)"
     }
   ],
-  "footer_text": "Mensaje de cierre"
+  "footer_text": "Frase de cierre personal — agradece que sean parte de Heroes Colombia"
 }
 
-Genera contenido con 2-3 secciones. Usa IDs de promoción de: ${context.topPromotions.map((p) => p.id).join(", ")}
-Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
+Usa IDs de promoción disponibles: ${promotionIds.join(", ")}
+Retorna SOLO el JSON. Sin explicación, sin markdown.`;
+}
+
+/**
+ * 15th of month: mid-month curation — best active promotions and featured businesses right now.
+ * Tone: helpful, direct — like a knowledgeable friend saying "I picked the best for you."
+ */
+function buildEmailMidMonthPrompt(context: ContentContext, tone: Tone): string {
+  const topPromotionsList = context.topPromotions
+    .slice(0, 8)
+    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% de descuento) [ID: ${p.id}]`)
+    .join("\n");
+
+  const featuredBusinessesList = [
+    ...context.rotationBusinesses.slice(0, 2),
+    ...context.enterpriseBusinesses.slice(0, 2),
+  ]
+    .slice(0, 3)
+    .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const newBusinessesList = context.newBusinesses
+    .slice(0, 3)
+    .map((b) => `- ${b.name} (${b.category})`)
+    .join("\n");
+
+  const promotionIds = context.topPromotions.slice(0, 6).map((p) => p.id);
+
+  return `Genera un email de mitad de mes para Heroes Colombia. Se envía el 15 de cada mes.
+
+PROPÓSITO: Contarle al héroe qué hay disponible AHORA en la app — las mejores promociones activas y los negocios que vale la pena conocer esta quincena. Como una recomendación curada de alguien que ya revisó todo y te dice qué vale la pena.
+
+TONO: ${tone}
+FECHA: ${context.currentDate}
+${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
+
+MEJORES PROMOCIONES ACTIVAS AHORA:
+${topPromotionsList || "No hay promociones disponibles"}
+
+NEGOCIOS DESTACADOS ESTA QUINCENA:
+${featuredBusinessesList || "No hay negocios destacados"}
+
+${newBusinessesList ? `NEGOCIOS NUEVOS (llegaron recientemente):
+${newBusinessesList}` : ""}
+
+ESTRUCTURA DEL EMAIL (2-3 secciones):
+1. Apertura directa y útil: ve al grano — "esto es lo mejor que hay para ti ahora"
+2. Promociones recomendadas: 2-3 promociones específicas con negocio y descuento real
+3. Negocios a conocer: 1-2 negocios que vale la pena visitar esta quincena
+El cierre debe ser un CTA claro para abrir la app — sin urgencia forzada
+
+FORMATO DE SALIDA (JSON):
+{
+  "subject": "Asunto directo y personal, que haga querer abrir el email de inmediato",
+  "preheader": "Complemento al asunto, máx 90 caracteres",
+  "sections": [
+    {
+      "headline": "Titular de sección (específico, no genérico)",
+      "promotions": ${JSON.stringify(promotionIds.slice(0, 3))},
+      "cta_text": "Texto de CTA concreto (ej: 'Ver descuentos en la app')"
+    }
+  ],
+  "footer_text": "Frase de cierre breve y humana"
+}
+
+Usa IDs de promoción disponibles: ${promotionIds.join(", ")}
+Retorna SOLO el JSON. Sin explicación, sin markdown.`;
 }
 
 // ============================================================================

@@ -1,10 +1,5 @@
-import {
-  EMAIL_FROM,
-  EMAIL_REPLY_TO,
-  JONATHAN_SIGNATURE_HTML,
-} from "../business-notifications/emailTemplates";
-
-export { EMAIL_FROM, EMAIL_REPLY_TO };
+import { JONATHAN_SIGNATURE_HTML } from "../business-notifications/emailTemplates";
+import { BusinessInfo } from "./helpers";
 
 function wrapInEmailTemplate(content: string, preheader: string = ""): string {
   return `
@@ -25,18 +20,13 @@ function wrapInEmailTemplate(content: string, preheader: string = ""): string {
 <body style="margin: 0; padding: 0; background: #fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
   ${preheader ? `<div style="display: none; max-height: 0; overflow: hidden;">${preheader}</div>` : ""}
   <div class="container" style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <!-- Header -->
     <div style="background: #5d7a3a; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
       <h1 style="margin: 0; color: white; font-size: 22px;">🇨🇴 Heroes Colombia</h1>
     </div>
-
-    <!-- Content -->
     <div style="background: white; padding: 30px; border-radius: 0 0 8px 8px;">
       ${content}
       ${JONATHAN_SIGNATURE_HTML}
     </div>
-
-    <!-- Footer -->
     <div style="text-align: center; padding: 20px;">
       <p style="color: #6b7280; font-size: 12px; margin: 0;">
         Heroes Colombia - Honrando a quienes sirven 🇨🇴
@@ -48,53 +38,41 @@ function wrapInEmailTemplate(content: string, preheader: string = ""): string {
 `;
 }
 
-export function getWelcomeEmailTemplate(
-  firstName: string,
-  rank: string
+export function getBusinessPaymentConfirmedEmail(
+  business: BusinessInfo
 ): { subject: string; html: string } {
-  const subject = `¡Bienvenido a Heroes Colombia, ${firstName}!`;
-
-  const rankParts = rank ? rank.split("_") : [];
-  const rankDisplay =
-    rankParts.length >= 3
-      ? `${rankParts[2]} de la/del ${rankParts[0].charAt(0) + rankParts[0].slice(1).toLowerCase()}`
-      : rank || "";
-
-  const rankLine = rankDisplay
-    ? `<p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-        Es un honor tenerte en nuestra plataforma como <strong>${rankDisplay}</strong>.
-        En Heroes Colombia, creemos que quienes sirven a la patria merecen lo mejor.
-      </p>`
-    : `<p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-        En Heroes Colombia, creemos que quienes sirven a la patria merecen lo mejor.
-      </p>`;
+  const firstName = business.owner_name.split(" ")[0];
+  const subject = `¡${business.name} ya está en vivo en Heroes Colombia! 🎉`;
 
   const content = `
     <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
       Hola ${firstName},
     </p>
     <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-      ¡Bienvenido a Heroes Colombia! Nos alegra mucho que hayas decidido unirte a Heroes Colombia.
+      ¡Excelente noticia! El pago de <strong>${business.name}</strong> ha sido confirmado
+      y tu negocio ya está activo en Heroes Colombia. 🎉
     </p>
-    ${rankLine}
+    <div style="background: #f5f7f5; border-left: 4px solid #5d7a3a; padding: 16px 20px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+      <p style="margin: 0; color: #1a1a1a; font-size: 15px; line-height: 1.6;">
+        Desde este momento, miles de héroes activos, retirados y sus familias
+        pueden encontrar a <strong>${business.name}</strong> en la app, ver sus
+        promociones y contactarlos directamente.
+      </p>
+    </div>
     <p style="color: #1a1a1a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
-      Desde hoy puedes explorar los negocios y promociones exclusivas que tenemos para ti:
+      En los próximos días recibirán algunos consejos para sacarle el máximo
+      provecho a la plataforma. Por ahora, les recomendamos verificar que el
+      perfil esté completo y crear su primera promoción si aún no lo han hecho.
     </p>
-    <ul style="color: #1a1a1a; font-size: 16px; line-height: 1.8; margin: 0 0 20px 0; padding-left: 20px;">
-      <li>🗺️ Descubre negocios cercanos a ti en el mapa</li>
-      <li>🤝 Nuevas alianzas cada mes a nivel nacional</li>
-      <li>🏷️ Accede a descuentos y promociones exclusivas</li>
-      <li>⭐ Guarda tus negocios favoritos para encontrarlos fácilmente</li>
-      <li>📍 Navega directamente a los negocios desde la app</li>
-    </ul>
     <div style="text-align: center; margin: 30px 0;">
-      <a href="https://heroescolombia.com"
+      <a href="https://app.heroescolombia.com/business/dashboard"
          style="display: inline-block; padding: 14px 28px; background: #5d7a3a; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
-        Compártelo con tus familiares y compañeros
+        Ir al Portal Web
       </a>
     </div>
     <p style="color: #6b7280; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
-      ¡Estamos aquí para acompañarte y seguiremos trabajando para ofrecerte lo mejor!
+      ¡Bienvenidos oficialmente a Heroes Colombia! Estamos muy contentos de
+      contar con <strong>${business.name}</strong> en nuestra plataforma.
     </p>
   `;
 
@@ -102,7 +80,7 @@ export function getWelcomeEmailTemplate(
     subject,
     html: wrapInEmailTemplate(
       content,
-      "Tu cuenta en Heroes Colombia está lista - empieza a explorar"
+      `Pago confirmado - ${business.name} ya está visible para los héroes`
     ),
   };
 }

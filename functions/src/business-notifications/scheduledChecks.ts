@@ -14,7 +14,6 @@ import {
   getBusinessInfo,
   sendBusinessNotification,
   wasRecentlySent,
-  isEmailNotificationEnabled,
   getActiveBusinesses,
   checkProfileCompleteness,
   hasActivePromotions,
@@ -25,6 +24,16 @@ import {
   getNoActivePromotionsEmail,
   getIncompleteProfileEmail,
 } from "./emailTemplates";
+
+async function isWithinDaysOfActivation(businessId: string, days: number): Promise<boolean> {
+  const doc = await getDb().collection("businesses").doc(businessId).get();
+  if (!doc.exists) return false;
+  const startDate = doc.data()?.subscription?.start_date;
+  if (!startDate) return false;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return startDate.toDate() > cutoff;
+}
 
 // ============================================================================
 // Promotion Expired Check
@@ -81,12 +90,6 @@ export const checkExpiredPromotions = functions
       let skipped = 0;
 
       for (const [businessId, promotions] of businessPromotions) {
-        // Check if email notifications are enabled
-        if (!(await isEmailNotificationEnabled(businessId))) {
-          skipped++;
-          continue;
-        }
-
         // Check if we recently sent this notification
         if (await wasRecentlySent(businessId, "promotion_expired", 48)) {
           skipped++;
@@ -151,8 +154,8 @@ export const checkNoActivePromotions = functions
       let skipped = 0;
 
       for (const business of businesses) {
-        // Check if email notifications are enabled
-        if (!(await isEmailNotificationEnabled(business.id))) {
+        // Skip businesses in their first 14 days — onboarding emails cover this period
+        if (await isWithinDaysOfActivation(business.id, 14)) {
           skipped++;
           continue;
         }
@@ -215,8 +218,8 @@ export const checkIncompleteProfiles = functions
       let skipped = 0;
 
       for (const business of businesses) {
-        // Check if email notifications are enabled
-        if (!(await isEmailNotificationEnabled(business.id))) {
+        // Skip businesses in their first 14 days — onboarding emails cover this period
+        if (await isWithinDaysOfActivation(business.id, 14)) {
           skipped++;
           continue;
         }
@@ -304,11 +307,6 @@ export async function manualCheckExpiredPromotions(): Promise<{
   let skipped = 0;
 
   for (const [businessId, promotions] of businessPromotions) {
-    if (!(await isEmailNotificationEnabled(businessId))) {
-      skipped++;
-      continue;
-    }
-
     const business = await getBusinessInfo(businessId);
     if (!business) {
       skipped++;
@@ -391,7 +389,8 @@ export const sendWeeklyReports = functions
 
         const results = await Promise.all(
           batch.map(async (business) => {
-            if (!(await isEmailNotificationEnabled(business.id))) {
+            // Skip businesses in their first 14 days — onboarding emails cover this period
+            if (await isWithinDaysOfActivation(business.id, 14)) {
               return "skipped";
             }
 

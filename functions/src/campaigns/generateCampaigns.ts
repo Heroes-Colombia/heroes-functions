@@ -22,8 +22,9 @@ import {
   PushContent,
   InAppContent,
   EmailContent,
+  EmailType,
 } from "./helpers/claudeApi";
-import { gatherCampaignContent, getBestFeaturedImage } from "./helpers/contentGathering";
+import { gatherCampaignContent, gatherRecapContent, getBestFeaturedImage } from "./helpers/contentGathering";
 import { getEnterpriseBusinessesToFeature } from "./helpers/enterpriseRotation";
 
 // ============================================================================
@@ -351,8 +352,8 @@ export const generateInAppCampaign = functions
   });
 
 /**
- * Generate Email Campaign
- * Schedule: 1st of each month at 1 AM Colombia time
+ * Generate Email Campaign — Monthly recap (1st of each month)
+ * Looks back 30 days, celebrates what happened, new businesses, top promos.
  * Cron: 0 1 1 * *
  */
 export const generateEmailCampaign = functions
@@ -360,10 +361,9 @@ export const generateEmailCampaign = functions
   .pubsub.schedule("0 1 1 * *")
   .timeZone("America/Bogota")
   .onRun(async (_context) => {
-    console.log("Starting email campaign generation...");
+    console.log("Starting monthly recap email campaign generation (1st)...");
 
-    // Gather content from Firestore
-    const content = await gatherCampaignContent();
+    const content = await gatherRecapContent();
     const date = new Date();
     const specialOccasion = checkSpecialOccasion(date);
     const category = determineContentCategory(date);
@@ -374,23 +374,17 @@ export const generateEmailCampaign = functions
       specialOccasion,
     };
 
-    // Get enterprise businesses to feature
     const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(5);
 
-    // Base campaign data
     const baseCampaignData = {
       campaign_type: "email" as const,
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
       scheduled_for: (() => {
-        // Schedule for 10:00 AM Colombia Time (UTC-5)
         const scheduled = new Date(date);
-        scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
-        // If that time has already passed today, schedule for tomorrow
-        if (scheduled <= date) {
-          scheduled.setUTCDate(scheduled.getUTCDate() + 1);
-        }
+        scheduled.setUTCHours(15, 0, 0, 0);
+        if (scheduled <= date) scheduled.setUTCDate(scheduled.getUTCDate() + 1);
         return Timestamp.fromDate(scheduled);
       })(),
       content_sources: {
@@ -416,10 +410,8 @@ export const generateEmailCampaign = functions
     };
 
     try {
-      // Generate content with Gemini
-      const emailContent = await generateEmailContent(contextWithOccasion, category, tone);
+      const emailContent = await generateEmailContent(contextWithOccasion, category, tone, "recap" as EmailType);
 
-      // Create campaign document with generated content
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
@@ -427,15 +419,13 @@ export const generateEmailCampaign = functions
       };
 
       const campaignRef = await getDb().collection("campaigns").add(campaignData);
-      console.log(`Email campaign created: ${campaignRef.id}`);
-
+      console.log(`Monthly recap email campaign created: ${campaignRef.id}`);
       await sendCampaignApprovalEmail(campaignRef.id, "email", category, tone);
 
       return null;
     } catch (error) {
-      console.error("Error generating email content with Gemini:", error);
+      console.error("Error generating monthly recap email:", error);
 
-      // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
@@ -444,7 +434,96 @@ export const generateEmailCampaign = functions
       };
 
       const campaignRef = await getDb().collection("campaigns").add(failedCampaignData);
-      console.log(`Failed email campaign created for review: ${campaignRef.id}`);
+      console.log(`Failed monthly recap campaign created for review: ${campaignRef.id}`);
+
+      throw error;
+    }
+  });
+
+/**
+ * Generate Mid-Month Email Campaign — What's available now (15th of each month)
+ * Looks back 7–14 days for top promos, curates what's active and worth seeing.
+ * Cron: 0 1 15 * *
+ */
+export const generateMidMonthEmailCampaign = functions
+  .runWith({ secrets: ["RESEND_API_KEY"] })
+  .pubsub.schedule("0 1 15 * *")
+  .timeZone("America/Bogota")
+  .onRun(async (_context) => {
+    console.log("Starting mid-month email campaign generation (15th)...");
+
+    const content = await gatherCampaignContent();
+    const date = new Date();
+    const specialOccasion = checkSpecialOccasion(date);
+    const category = determineContentCategory(date);
+    const tone = determineTone(date, specialOccasion);
+
+    const contextWithOccasion: ContentContext = {
+      ...content,
+      specialOccasion,
+    };
+
+    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(5);
+
+    const baseCampaignData = {
+      campaign_type: "email" as const,
+      content_category: category,
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      scheduled_for: (() => {
+        const scheduled = new Date(date);
+        scheduled.setUTCHours(15, 0, 0, 0);
+        if (scheduled <= date) scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+        return Timestamp.fromDate(scheduled);
+      })(),
+      content_sources: {
+        top_promotions: content.topPromotions.map((p) => p.id),
+        under_promoted: content.underPromoted.map((p) => p.id),
+        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        new_businesses: content.newBusinesses.map((b) => b.id),
+        rotation_businesses: content.rotationBusinesses.map((b) => b.id),
+        categories: [],
+      },
+      gemini_model: "gemini-2.5-flash-lite",
+      tone,
+      target_audience: "all_active" as const,
+      analytics: {
+        total_recipients: 0,
+        push_sent: 0,
+        email_sent: 0,
+        inapp_configured: false,
+      },
+      approval: {
+        edits_made: false,
+      },
+    };
+
+    try {
+      const emailContent = await generateEmailContent(contextWithOccasion, category, tone, "midmonth" as EmailType);
+
+      const campaignData: CampaignDocument = {
+        ...baseCampaignData,
+        status: "pending_review",
+        email_content: emailContent,
+      };
+
+      const campaignRef = await getDb().collection("campaigns").add(campaignData);
+      console.log(`Mid-month email campaign created: ${campaignRef.id}`);
+      await sendCampaignApprovalEmail(campaignRef.id, "email", category, tone);
+
+      return null;
+    } catch (error) {
+      console.error("Error generating mid-month email:", error);
+
+      const failedCampaignData = {
+        ...baseCampaignData,
+        status: "failed" as CampaignStatus,
+        error_message: error instanceof Error ? error.message : String(error),
+        failed_at: Timestamp.now(),
+      };
+
+      const campaignRef = await getDb().collection("campaigns").add(failedCampaignData);
+      console.log(`Failed mid-month campaign created for review: ${campaignRef.id}`);
 
       throw error;
     }
