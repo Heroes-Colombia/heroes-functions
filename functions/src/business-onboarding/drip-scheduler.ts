@@ -198,6 +198,12 @@ export const businessDripSequence = functions
           return days >= s.day && (!next || days < next.day);
         });
         if (!currentStep) return null;
+
+        // Skip conversion nudges for businesses already on the annual plan
+        const isAnnualPlan = data.subscription?.status === "active";
+        const isConversionEmail = currentStep.type === "drip_onboard_day30" || currentStep.type === "drip_onboard_day45";
+        if (isAnnualPlan && isConversionEmail) return null;
+
         if (await wasEverSent(businessId, currentStep.type)) return null;
         return currentStep;
       },

@@ -52,6 +52,7 @@ import { onUserSignup } from "./user-notifications/welcomeEmail";
 import {
   onBusinessRegistration,
   onBusinessPaymentConfirmed,
+  onBusinessAnnualUpgrade,
   businessDripSequence,
 } from "./business-onboarding";
 
@@ -439,6 +440,9 @@ exports.onBusinessRegistration = onBusinessRegistration;
 
 // Send payment confirmed email when admin approves trial or manual subscription
 exports.onBusinessPaymentConfirmed = onBusinessPaymentConfirmed;
+
+// Send thank-you email when a trial business upgrades to the annual plan
+exports.onBusinessAnnualUpgrade = onBusinessAnnualUpgrade;
 
 // Daily drip: pre-payment reminders (days 1/2/5/7) + post-payment onboarding (days 1/3/7/14)
 exports.businessDripSequence = businessDripSequence;

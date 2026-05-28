@@ -34,7 +34,8 @@ export type OnboardingNotificationType =
   | "drip_onboard_day45"
   | "drip_reengagement_day3"
   | "drip_reengagement_day10"
-  | "drip_reengagement_day20";
+  | "drip_reengagement_day20"
+  | "business_annual_upgrade";
 
 // ============================================================================
 // Resend Client
