@@ -36,7 +36,6 @@ export interface ContentContext {
     name: string;
     category: string;
   }>;
-  // Non-enterprise businesses selected by rotation (least-recently-featured first)
   rotationBusinesses: Array<{
     id: string;
     name: string;
@@ -44,6 +43,11 @@ export interface ContentContext {
   }>;
   currentDate: string;
   specialOccasion?: string;
+  recentCampaigns: {
+    anglesUsed: string[];
+    businessIdsUsed: string[];
+    titlesUsed: string[];
+  };
 }
 
 export interface PushContent {
@@ -78,6 +82,49 @@ export type Tone =
   | "celebratory"
   | "professional_patriotic";
 export type EmailType = "recap" | "midmonth";
+
+export type CampaignAngle =
+  | "new_arrival"         // new business joined < 7 days AND never featured before
+  | "promotion_spotlight" // highlight 1-2 specific promotions with real percentages
+  | "business_highlight"  // spotlight 1 business, explain what they offer
+  | "savings_framing"     // frame it around what users can save
+  | "category_week"       // best deals in a specific category
+  | "rediscover";         // surface under-promoted promotions with low views
+
+const ALL_ANGLES: CampaignAngle[] = [
+  "promotion_spotlight",
+  "business_highlight",
+  "savings_framing",
+  "category_week",
+  "rediscover",
+];
+
+/**
+ * Select the campaign angle that keeps messaging fresh.
+ * Fires new_arrival only for genuinely new businesses (joined < 7 days, never featured).
+ * Otherwise rotates through remaining angles, avoiding what was used most recently.
+ */
+export function selectCampaignAngle(context: ContentContext): CampaignAngle {
+  const { newBusinesses, recentCampaigns } = context;
+
+  const genuinelyNew = newBusinesses.filter(
+    (b) => !recentCampaigns.businessIdsUsed.includes(b.id)
+  );
+  if (genuinelyNew.length > 0) {
+    return "new_arrival";
+  }
+
+  const unusedAngles = ALL_ANGLES.filter(
+    (a) => !recentCampaigns.anglesUsed.includes(a)
+  );
+  if (unusedAngles.length > 0) {
+    return unusedAngles[0];
+  }
+
+  // All angles used recently — pick the one not used in the last 3 campaigns
+  const recentSet = new Set(recentCampaigns.anglesUsed.slice(0, 3));
+  return ALL_ANGLES.find((a) => !recentSet.has(a)) ?? ALL_ANGLES[0];
+}
 
 // ============================================================================
 // System Prompts
@@ -162,10 +209,11 @@ function parseJsonResponse<T>(text: string): T {
 export async function generatePushContent(
   context: ContentContext,
   category: ContentCategory,
-  tone: Tone
+  tone: Tone,
+  angle: CampaignAngle
 ): Promise<PushContent> {
   const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
-  const prompt = buildPushPrompt(context, category, tone);
+  const prompt = buildPushPrompt(context, category, tone, angle);
 
   try {
     const result = await model.generateContent(prompt);
@@ -183,10 +231,11 @@ export async function generatePushContent(
 export async function generateInAppContent(
   context: ContentContext,
   category: ContentCategory,
-  tone: Tone
+  tone: Tone,
+  angle: CampaignAngle
 ): Promise<InAppContent> {
   const model = getModel(SYSTEM_PROMPTS.consumerCampaign);
-  const prompt = buildInAppPrompt(context, category, tone);
+  const prompt = buildInAppPrompt(context, category, tone, angle);
 
   try {
     const result = await model.generateContent(prompt);
@@ -255,14 +304,11 @@ Retorna solo el contenido HTML, sin explicación. Usa esta estructura:
 // Prompt Builders
 // ============================================================================
 
-function buildPushPrompt(
-  context: ContentContext,
-  category: ContentCategory,
-  tone: Tone
+function buildAngleInstructions(
+  angle: CampaignAngle,
+  context: ContentContext
 ): string {
-  const hasNewBusinesses = context.newBusinesses.length > 0;
-
-  const newBusinessesList = context.newBusinesses
+  const newList = context.newBusinesses
     .slice(0, 3)
     .map((b) => `- ${b.name} (${b.category})`)
     .join("\n");
@@ -277,6 +323,90 @@ function buildPushPrompt(
     .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% descuento)`)
     .join("\n");
 
+  const underList = context.underPromoted
+    .slice(0, 3)
+    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% descuento)`)
+    .join("\n");
+
+  const topCategoryCount: Record<string, number> = {};
+  for (const p of context.topPromotions) {
+    topCategoryCount[p.category] = (topCategoryCount[p.category] || 0) + 1;
+  }
+  const topCategory = Object.entries(topCategoryCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "general";
+  const categoryPromos = context.topPromotions
+    .filter((p) => p.category === topCategory)
+    .slice(0, 3)
+    .map((p) => `- ${p.business_name}: ${p.title} (${p.percentage}% descuento)`)
+    .join("\n");
+
+  switch (angle) {
+    case "new_arrival":
+      return `ÁNGULO: Nuevo aliado en Heroes Colombia
+Un negocio acaba de unirse y es su primera aparición para los usuarios.
+NEGOCIOS NUEVOS:
+${newList || "Sin negocios nuevos"}
+El mensaje debe dar la bienvenida a este aliado e invitar a los usuarios a conocerlo.`;
+
+    case "promotion_spotlight":
+      return `ÁNGULO: Promoción destacada
+Enfócate en 1-2 promociones específicas. Sé concreto: menciona el negocio y el porcentaje real.
+PROMOCIONES DISPONIBLES:
+${promotionsList || "Sin promociones disponibles"}
+NEGOCIOS DE ESTA SEMANA:
+${rotationList || "Sin negocios en rotación"}`;
+
+    case "business_highlight":
+      return `ÁNGULO: Negocio del momento
+Elige 1 negocio de la lista y preséntalo. ¿Qué ofrecen? ¿Por qué vale la pena visitarlos esta semana?
+NEGOCIOS DE ESTA SEMANA:
+${rotationList || "Sin negocios en rotación"}
+PROMOCIONES ACTIVAS (contexto):
+${promotionsList || "Sin promociones disponibles"}`;
+
+    case "savings_framing":
+      return `ÁNGULO: Ahorro real
+Enmarca el mensaje alrededor del valor concreto que Heroes Colombia da a los beneficiarios.
+Usa descuentos reales para ilustrar cuánto pueden ahorrar.
+PROMOCIONES CON DESCUENTOS:
+${promotionsList || "Sin promociones disponibles"}
+NEGOCIOS DE ESTA SEMANA:
+${rotationList || "Sin negocios en rotación"}`;
+
+    case "category_week":
+      return `ÁNGULO: Lo mejor en ${topCategory}
+Agrupa las mejores opciones de la categoría "${topCategory}" disponibles ahora.
+PROMOCIONES EN ESTA CATEGORÍA:
+${categoryPromos || promotionsList || "Sin promociones disponibles"}
+NEGOCIOS ACTIVOS:
+${rotationList || "Sin negocios en rotación"}`;
+
+    case "rediscover":
+      return `ÁNGULO: Por si te lo perdiste
+Hay promociones activas que merecen más atención — recuérdale al usuario que existen.
+PROMOCIONES CON POCAS VISUALIZACIONES:
+${underList || promotionsList || "Sin promociones disponibles"}
+NEGOCIOS DE ESTA SEMANA:
+${rotationList || "Sin negocios en rotación"}`;
+  }
+}
+
+function buildPushPrompt(
+  context: ContentContext,
+  category: ContentCategory,
+  tone: Tone,
+  angle: CampaignAngle
+): string {
+  const angleInstructions = buildAngleInstructions(angle, context);
+
+  const recentBusinessNames = context.recentCampaigns.businessIdsUsed
+    .slice(0, 5)
+    .join(", ");
+
+  const recentTitles = context.recentCampaigns.titlesUsed
+    .slice(0, 3)
+    .map((t) => `- "${t}"`)
+    .join("\n");
+
   return `Genera una notificación push para Heroes Colombia.
 
 CATEGORÍA DE CONTENIDO: ${category}
@@ -284,15 +414,10 @@ TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-${hasNewBusinesses ? `⚠️ PRIORIDAD MÁXIMA — NEGOCIOS NUEVOS:
-Estos negocios acaban de unirse a Heroes Colombia. DEBES mencionarlos en la notificación.
-${newBusinessesList}
+${angleInstructions}
 
-` : ""}NEGOCIOS DESTACADOS DE ESTA SEMANA (seleccionados por rotación justa):
-${rotationList || "No hay negocios en rotación"}
-
-PROMOCIONES POPULARES (contexto adicional):
-${promotionsList || "No hay promociones disponibles"}
+${recentBusinessNames ? `NEGOCIOS USADOS RECIENTEMENTE (no los repitas como protagonistas): ${recentBusinessNames}` : ""}
+${recentTitles ? `TÍTULOS RECIENTES (usa un enfoque diferente, no repitas el mismo ángulo):\n${recentTitles}` : ""}
 
 FORMATO DE SALIDA (JSON):
 {
@@ -300,28 +425,17 @@ FORMATO DE SALIDA (JSON):
   "body": "Máx 120 caracteres, llamada a la acción convincente"
 }
 
-${hasNewBusinesses ? "El mensaje DEBE destacar los negocios nuevos — es su primera aparición en la app." : "Menciona los negocios destacados de esta semana."}
-Sé creativo y suena natural sin palabras que suenen forzadas. Retorna SOLO el JSON, sin explicación.`;
+Sé creativo y suena natural. Retorna SOLO el JSON, sin explicación.`;
 }
 
 function buildInAppPrompt(
   context: ContentContext,
   category: ContentCategory,
-  tone: Tone
+  tone: Tone,
+  angle: CampaignAngle
 ): string {
-  const hasNewBusinesses = context.newBusinesses.length > 0;
   const topPromotion = context.topPromotions[0];
   const featuredPromotions = context.topPromotions.slice(0, 5).map((p) => p.id);
-
-  const newBusinessesList = context.newBusinesses
-    .slice(0, 3)
-    .map((b) => `- ${b.name} (${b.category})`)
-    .join("\n");
-
-  const rotationList = context.rotationBusinesses
-    .slice(0, 3)
-    .map((b) => `- ${b.name} (${b.category})`)
-    .join("\n");
 
   const buttonAction = topPromotion
     ? `heroescolombia://promotion?id=${topPromotion.id}`
@@ -330,6 +444,17 @@ function buildInAppPrompt(
   const buttonTextHint = topPromotion
     ? `Texto corto que invite a ver la promoción de ${topPromotion.business_name} (ej: 'Ver oferta', 'Aprovechar descuento')`
     : "Texto corto que invite a explorar (ej: 'Explorar descuentos', 'Ver ofertas')";
+
+  const angleInstructions = buildAngleInstructions(angle, context);
+
+  const recentBusinessNames = context.recentCampaigns.businessIdsUsed
+    .slice(0, 5)
+    .join(", ");
+
+  const recentTitles = context.recentCampaigns.titlesUsed
+    .slice(0, 3)
+    .map((t) => `- "${t}"`)
+    .join("\n");
 
   return `Genera un mensaje in-app para Heroes Colombia.
 
@@ -344,14 +469,10 @@ TONO: ${tone}
 FECHA: ${context.currentDate}
 ${context.specialOccasion ? `OCASIÓN ESPECIAL: ${context.specialOccasion}` : ""}
 
-${hasNewBusinesses ? `⚠️ PRIORIDAD — NEGOCIOS NUEVOS (menciónalos en el mensaje):
-${newBusinessesList}
+${angleInstructions}
 
-` : ""}NEGOCIOS DESTACADOS ESTA SEMANA:
-${rotationList || "No hay negocios en rotación"}
-
-PROMOCIÓN DESTACADA:
-${topPromotion ? `${topPromotion.business_name}: ${topPromotion.title} (${topPromotion.percentage}%)` : "Ninguna"}
+${recentBusinessNames ? `NEGOCIOS USADOS RECIENTEMENTE (no los repitas como protagonistas): ${recentBusinessNames}` : ""}
+${recentTitles ? `TÍTULOS RECIENTES (usa un enfoque diferente):\n${recentTitles}` : ""}
 
 FORMATO DE SALIDA (JSON):
 {
@@ -363,7 +484,6 @@ FORMATO DE SALIDA (JSON):
   "button_action": "${buttonAction}"
 }
 
-${hasNewBusinesses ? "El mensaje debe girar alrededor de los negocios nuevos — es su primera aparición." : "Menciona los negocios destacados de esta semana."}
 Retorna SOLO el JSON, sin explicación.`;
 }
 

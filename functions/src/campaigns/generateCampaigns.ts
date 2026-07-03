@@ -18,14 +18,15 @@ import {
   determineContentCategory,
   determineTone,
   checkSpecialOccasion,
+  selectCampaignAngle,
   ContentContext,
   PushContent,
   InAppContent,
   EmailContent,
   EmailType,
+  CampaignAngle,
 } from "./helpers/claudeApi";
 import { gatherCampaignContent, gatherRecapContent, getBestFeaturedImage } from "./helpers/contentGathering";
-import { getEnterpriseBusinessesToFeature } from "./helpers/enterpriseRotation";
 
 // ============================================================================
 // Admin Notification
@@ -101,6 +102,7 @@ type Tone = "professional_patriotic" | "friendly" | "urgency" | "celebratory";
 
 interface CampaignDocument {
   campaign_type: CampaignType;
+  campaign_angle?: CampaignAngle;
   content_category: ContentCategory;
   status: CampaignStatus;
   created_at: Timestamp;
@@ -153,33 +155,29 @@ export const generatePushCampaign = functions
   .onRun(async (_context) => {
     console.log("Starting push campaign generation...");
 
-    // Gather content from Firestore
     const content = await gatherCampaignContent();
     const date = new Date();
     const specialOccasion = checkSpecialOccasion(date);
     const category = determineContentCategory(date);
     const tone = determineTone(date, specialOccasion);
 
-    // Add special occasion to context if exists
     const contextWithOccasion: ContentContext = {
       ...content,
       specialOccasion,
     };
 
-    // Get enterprise businesses to feature
-    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(3);
+    const angle = selectCampaignAngle(contextWithOccasion);
+    console.log(`Push campaign angle selected: ${angle}`);
 
-    // Base campaign data (without content - added after generation attempt)
     const baseCampaignData = {
       campaign_type: "push" as const,
+      campaign_angle: angle,
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
       scheduled_for: (() => {
-        // Schedule for 10:00 AM Colombia Time (UTC-5)
         const scheduled = new Date(date);
         scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
-        // If that time has already passed today, schedule for tomorrow
         if (scheduled <= date) {
           scheduled.setUTCDate(scheduled.getUTCDate() + 1);
         }
@@ -188,7 +186,7 @@ export const generatePushCampaign = functions
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
-        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        enterprise_businesses: [] as string[],
         new_businesses: content.newBusinesses.map((b) => b.id),
         rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
@@ -208,17 +206,14 @@ export const generatePushCampaign = functions
     };
 
     try {
-      // Generate content with Gemini
-      const pushContent = await generatePushContent(contextWithOccasion, category, tone);
+      const pushContent = await generatePushContent(contextWithOccasion, category, tone, angle);
 
-      // Create campaign document with generated content
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
         push_content: pushContent,
       };
 
-      // Save to Firestore
       const campaignRef = await getDb().collection("campaigns").add(campaignData);
       console.log(`Push campaign created: ${campaignRef.id}`);
 
@@ -228,7 +223,6 @@ export const generatePushCampaign = functions
     } catch (error) {
       console.error("Error generating push content with Gemini:", error);
 
-      // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
@@ -255,7 +249,6 @@ export const generateInAppCampaign = functions
   .onRun(async (_context) => {
     console.log("Starting in-app campaign generation...");
 
-    // Gather content from Firestore
     const content = await gatherCampaignContent();
     const date = new Date();
     const specialOccasion = checkSpecialOccasion(date);
@@ -267,23 +260,20 @@ export const generateInAppCampaign = functions
       specialOccasion,
     };
 
-    // Get enterprise businesses to feature
-    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(3);
+    const angle = selectCampaignAngle(contextWithOccasion);
+    console.log(`In-app campaign angle selected: ${angle}`);
 
-    // Get featured image from top promotion
     const featuredImage = await getBestFeaturedImage(content);
 
-    // Base campaign data
     const baseCampaignData = {
       campaign_type: "inapp" as const,
+      campaign_angle: angle,
       content_category: category,
       created_at: Timestamp.now(),
       updated_at: Timestamp.now(),
       scheduled_for: (() => {
-        // Schedule for 10:00 AM Colombia Time (UTC-5)
         const scheduled = new Date(date);
-        scheduled.setUTCHours(15, 0, 0, 0); // 10:00 AM COT = 15:00 UTC
-        // If that time has already passed today, schedule for tomorrow
+        scheduled.setUTCHours(15, 0, 0, 0);
         if (scheduled <= date) {
           scheduled.setUTCDate(scheduled.getUTCDate() + 1);
         }
@@ -292,7 +282,7 @@ export const generateInAppCampaign = functions
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
-        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        enterprise_businesses: [] as string[],
         new_businesses: content.newBusinesses.map((b) => b.id),
         rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
@@ -312,15 +302,12 @@ export const generateInAppCampaign = functions
     };
 
     try {
-      // Generate content with Gemini
-      const inappContent = await generateInAppContent(contextWithOccasion, category, tone);
+      const inappContent = await generateInAppContent(contextWithOccasion, category, tone, angle);
 
-      // Add featured image if available
       if (featuredImage) {
         inappContent.image_url = featuredImage;
       }
 
-      // Create campaign document with generated content
       const campaignData: CampaignDocument = {
         ...baseCampaignData,
         status: "pending_review",
@@ -336,7 +323,6 @@ export const generateInAppCampaign = functions
     } catch (error) {
       console.error("Error generating in-app content with Gemini:", error);
 
-      // Create failed campaign document for admin visibility
       const failedCampaignData = {
         ...baseCampaignData,
         status: "failed" as CampaignStatus,
@@ -353,7 +339,6 @@ export const generateInAppCampaign = functions
 
 /**
  * Generate Email Campaign — Monthly recap (1st of each month)
- * Looks back 30 days, celebrates what happened, new businesses, top promos.
  * Cron: 0 1 1 * *
  */
 export const generateEmailCampaign = functions
@@ -374,8 +359,6 @@ export const generateEmailCampaign = functions
       specialOccasion,
     };
 
-    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(5);
-
     const baseCampaignData = {
       campaign_type: "email" as const,
       content_category: category,
@@ -390,7 +373,7 @@ export const generateEmailCampaign = functions
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
-        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        enterprise_businesses: [] as string[],
         new_businesses: content.newBusinesses.map((b) => b.id),
         rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
@@ -442,7 +425,6 @@ export const generateEmailCampaign = functions
 
 /**
  * Generate Mid-Month Email Campaign — What's available now (15th of each month)
- * Looks back 7–14 days for top promos, curates what's active and worth seeing.
  * Cron: 0 1 15 * *
  */
 export const generateMidMonthEmailCampaign = functions
@@ -463,8 +445,6 @@ export const generateMidMonthEmailCampaign = functions
       specialOccasion,
     };
 
-    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(5);
-
     const baseCampaignData = {
       campaign_type: "email" as const,
       content_category: category,
@@ -479,7 +459,7 @@ export const generateMidMonthEmailCampaign = functions
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
-        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        enterprise_businesses: [] as string[],
         new_businesses: content.newBusinesses.map((b) => b.id),
         rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],
@@ -554,14 +534,17 @@ export async function manuallyGenerateCampaign(
       specialOccasion,
     };
 
+    const angle = selectCampaignAngle(contextWithOccasion);
+    console.log(`Manual campaign angle selected: ${angle}`);
+
     let generatedContent: PushContent | InAppContent | EmailContent;
 
     switch (campaignType) {
       case "push":
-        generatedContent = await generatePushContent(contextWithOccasion, category, tone);
+        generatedContent = await generatePushContent(contextWithOccasion, category, tone, angle);
         break;
       case "inapp":
-        generatedContent = await generateInAppContent(contextWithOccasion, category, tone);
+        generatedContent = await generateInAppContent(contextWithOccasion, category, tone, angle);
         const featuredImage = await getBestFeaturedImage(content);
         if (featuredImage && "image_url" in generatedContent) {
           generatedContent.image_url = featuredImage;
@@ -572,10 +555,9 @@ export async function manuallyGenerateCampaign(
         break;
     }
 
-    const enterpriseBusinesses = await getEnterpriseBusinessesToFeature(3);
-
     const campaignData: CampaignDocument = {
       campaign_type: campaignType,
+      campaign_angle: campaignType !== "email" ? angle : undefined,
       content_category: category,
       status: "pending_review",
       created_at: Timestamp.now(),
@@ -586,7 +568,7 @@ export async function manuallyGenerateCampaign(
       content_sources: {
         top_promotions: content.topPromotions.map((p) => p.id),
         under_promoted: content.underPromoted.map((p) => p.id),
-        enterprise_businesses: enterpriseBusinesses.map((b) => b.id),
+        enterprise_businesses: [],
         new_businesses: content.newBusinesses.map((b) => b.id),
         rotation_businesses: content.rotationBusinesses.map((b) => b.id),
         categories: [],

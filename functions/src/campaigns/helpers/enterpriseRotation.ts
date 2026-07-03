@@ -322,6 +322,147 @@ export async function updateGeneralRotation(
   }
 }
 
+// ============================================================================
+// Unified Business Rotation (active subscription first, then trial)
+// ============================================================================
+
+interface UnifiedRotationData {
+  businesses: {
+    [businessId: string]: {
+      last_featured_at: Timestamp | null;
+      feature_count: number;
+      first_featured_campaign_id: string | null;
+    };
+  };
+  updated_at: Timestamp;
+}
+
+/**
+ * Get businesses to feature, guaranteeing active (paid) subscribers get priority slots.
+ * Slot allocation: ~67% active, ~33% trial. Backfills with trial if active pool is small.
+ * Within each pool, least-recently-featured businesses come first.
+ */
+export async function getBusinessesToFeature(
+  count: number = 3
+): Promise<BusinessForRotation[]> {
+  try {
+    const rotationRef = getDb()
+      .collection("campaigns_metadata")
+      .doc("business_rotation");
+    const rotationDoc = await rotationRef.get();
+    const rotationData: UnifiedRotationData["businesses"] = rotationDoc.exists
+      ? ((rotationDoc.data() as UnifiedRotationData).businesses ?? {})
+      : {};
+
+    const snapshot = await getDb()
+      .collection("businesses")
+      .where("status", "==", "active")
+      .where("subscription.status", "in", ["active", "trial"])
+      .get();
+
+    if (snapshot.empty) return [];
+
+    const sortByRotation = (a: BusinessForRotation, b: BusinessForRotation) => {
+      if (!a.last_featured_at && b.last_featured_at) return -1;
+      if (a.last_featured_at && !b.last_featured_at) return 1;
+      if (!a.last_featured_at && !b.last_featured_at)
+        return a.feature_count - b.feature_count;
+      return a.last_featured_at!.getTime() - b.last_featured_at!.getTime();
+    };
+
+    const activePool: BusinessForRotation[] = [];
+    const trialPool: BusinessForRotation[] = [];
+
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      const info = rotationData[doc.id];
+      const business: BusinessForRotation = {
+        id: doc.id,
+        name: data.name,
+        categories: data.categories || [],
+        last_featured_at: info?.last_featured_at?.toDate() ?? null,
+        feature_count: info?.feature_count ?? 0,
+      };
+      if (data.subscription?.status === "active") {
+        activePool.push(business);
+      } else {
+        trialPool.push(business);
+      }
+    }
+
+    activePool.sort(sortByRotation);
+    trialPool.sort(sortByRotation);
+
+    const activeSlots = Math.ceil(count * 0.67);
+    const activePick = activePool.slice(0, activeSlots);
+    const remainingSlots = count - activePick.length;
+    const trialPick = trialPool.slice(0, remainingSlots);
+    const result = [...activePick, ...trialPick];
+
+    // Backfill with more trial if active pool was smaller than activeSlots
+    if (result.length < count) {
+      result.push(
+        ...trialPool.slice(trialPick.length, trialPick.length + (count - result.length))
+      );
+    }
+
+    return result.slice(0, count);
+  } catch (error) {
+    console.error("Error getting businesses for rotation:", error);
+    return [];
+  }
+}
+
+/**
+ * Update unified business rotation tracking after a campaign is sent.
+ * Records last_featured_at and first_featured_campaign_id (used for new_arrival angle tracking).
+ */
+export async function updateBusinessRotation(
+  businessIds: string[],
+  campaignId: string
+): Promise<void> {
+  if (businessIds.length === 0) return;
+
+  try {
+    const rotationRef = getDb()
+      .collection("campaigns_metadata")
+      .doc("business_rotation");
+    const rotationDoc = await rotationRef.get();
+    const rotationData: UnifiedRotationData["businesses"] = rotationDoc.exists
+      ? ((rotationDoc.data() as UnifiedRotationData).businesses ?? {})
+      : {};
+
+    const now = Timestamp.now();
+    for (const id of businessIds) {
+      const existing = rotationData[id] ?? {
+        last_featured_at: null,
+        feature_count: 0,
+        first_featured_campaign_id: null,
+      };
+      rotationData[id] = {
+        last_featured_at: now,
+        feature_count: existing.feature_count + 1,
+        first_featured_campaign_id: existing.first_featured_campaign_id ?? campaignId,
+      };
+    }
+
+    await rotationRef.set(
+      { businesses: rotationData, updated_at: now },
+      { merge: true }
+    );
+    console.log(
+      `Updated business rotation for ${businessIds.length} businesses in campaign ${campaignId}`
+    );
+  } catch (error) {
+    console.error("Error updating business rotation:", error);
+    throw error;
+  }
+}
+
+// ============================================================================
+// Legacy Admin Function
+// ============================================================================
+
 /**
  * Reset rotation data (admin function)
  */

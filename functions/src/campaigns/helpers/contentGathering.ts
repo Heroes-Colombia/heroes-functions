@@ -10,7 +10,7 @@
 import { getDb } from "../../utils/firebase";
 import { Timestamp } from "firebase-admin/firestore"
 import { ContentContext } from "./claudeApi";
-import { getGeneralBusinessesToFeature } from "./enterpriseRotation";
+import { getBusinessesToFeature } from "./enterpriseRotation";
 
 // ============================================================================
 // Types
@@ -40,17 +40,76 @@ interface BusinessData {
 // Main Content Gathering Function
 // ============================================================================
 
+// ============================================================================
+// Recent Campaign Context (for anti-repetition)
+// ============================================================================
+
+interface RecentCampaignContext {
+  anglesUsed: string[];
+  businessIdsUsed: string[];
+  titlesUsed: string[];
+}
+
 /**
- * Gather content for mid-month email (15th) — current best promotions, last 7 days context
+ * Read the last 5 non-failed campaigns to extract angles, businesses, and titles used.
+ * Used to prevent repeating the same angle or same businesses in consecutive campaigns.
+ */
+async function getLastCampaignContext(): Promise<RecentCampaignContext> {
+  try {
+    const docs = await getDb()
+      .collection("campaigns")
+      .orderBy("created_at", "desc")
+      .limit(10)
+      .get();
+
+    const recent = docs.docs
+      .filter((d) =>
+        ["sent", "pending_review", "approved", "sending"].includes(d.data().status)
+      )
+      .slice(0, 5);
+
+    const anglesUsed: string[] = [];
+    const businessIdsUsed: string[] = [];
+    const titlesUsed: string[] = [];
+
+    for (const doc of recent) {
+      const data = doc.data();
+      if (data.campaign_angle) anglesUsed.push(data.campaign_angle);
+
+      const sources = data.content_sources ?? {};
+      const ids: string[] = [
+        ...(sources.rotation_businesses ?? []),
+        ...(sources.new_businesses ?? []),
+      ];
+      businessIdsUsed.push(...ids);
+
+      const title =
+        data.push_content?.title || data.inapp_content?.title || null;
+      if (title) titlesUsed.push(title);
+    }
+
+    return { anglesUsed, businessIdsUsed, titlesUsed };
+  } catch (error) {
+    console.error("Error reading recent campaign context:", error);
+    return { anglesUsed: [], businessIdsUsed: [], titlesUsed: [] };
+  }
+}
+
+// ============================================================================
+// Main Content Gathering Function
+// ============================================================================
+
+/**
+ * Gather content for push/in-app/mid-month campaigns — 7-day context window.
  */
 export async function gatherCampaignContent(): Promise<ContentContext> {
-  const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses, rotationBusinesses] =
+  const [topPromotions, underPromoted, rotationBusinesses, newBusinesses, recentCampaigns] =
     await Promise.all([
       getTopPromotionsByViews(20, 7),
       getUnderPromotedPromotions(10),
-      getEnterpriseBusinesses(),
-      getNewBusinesses(14),
-      getGeneralBusinessesToFeature(3),
+      getBusinessesToFeature(3),
+      getNewBusinesses(7),
+      getLastCampaignContext(),
     ]);
 
   return {
@@ -67,11 +126,7 @@ export async function gatherCampaignContent(): Promise<ContentContext> {
       percentage: p.percentage,
       business_name: p.business_name || "Negocio",
     })),
-    enterpriseBusinesses: enterpriseBusinesses.map((b) => ({
-      id: b.id,
-      name: b.name,
-      category: b.categories[0] || "general",
-    })),
+    enterpriseBusinesses: [],
     newBusinesses: newBusinesses.map((b) => ({
       id: b.id,
       name: b.name,
@@ -88,20 +143,21 @@ export async function gatherCampaignContent(): Promise<ContentContext> {
       month: "long",
       day: "numeric",
     }),
+    recentCampaigns,
   };
 }
 
 /**
- * Gather content for the 1st-of-month recap email — 30-day lookback for new businesses and top promotions
+ * Gather content for the 1st-of-month recap email — 30-day lookback.
  */
 export async function gatherRecapContent(): Promise<ContentContext> {
-  const [topPromotions, underPromoted, enterpriseBusinesses, newBusinesses, rotationBusinesses] =
+  const [topPromotions, underPromoted, rotationBusinesses, newBusinesses, recentCampaigns] =
     await Promise.all([
       getTopPromotionsByViews(20, 30),
       getUnderPromotedPromotions(10),
-      getEnterpriseBusinesses(),
+      getBusinessesToFeature(3),
       getNewBusinesses(30),
-      getGeneralBusinessesToFeature(3),
+      getLastCampaignContext(),
     ]);
 
   return {
@@ -118,11 +174,7 @@ export async function gatherRecapContent(): Promise<ContentContext> {
       percentage: p.percentage,
       business_name: p.business_name || "Negocio",
     })),
-    enterpriseBusinesses: enterpriseBusinesses.map((b) => ({
-      id: b.id,
-      name: b.name,
-      category: b.categories[0] || "general",
-    })),
+    enterpriseBusinesses: [],
     newBusinesses: newBusinesses.map((b) => ({
       id: b.id,
       name: b.name,
@@ -139,6 +191,7 @@ export async function gatherRecapContent(): Promise<ContentContext> {
       month: "long",
       day: "numeric",
     }),
+    recentCampaigns,
   };
 }
 
@@ -341,31 +394,6 @@ async function fetchPromotionsWithBusinessInfo(
 // ============================================================================
 // Business Queries
 // ============================================================================
-
-/**
- * Get enterprise businesses for featuring
- */
-async function getEnterpriseBusinesses(): Promise<BusinessData[]> {
-  try {
-    const businesses = await getDb()
-      .collection("businesses")
-      .where("plan", "==", "enterprise")
-      .where("status", "==", "active")
-      .where("subscription.status", "in", ["active", "trial"])
-      .get();
-
-    return businesses.docs.map((doc) => ({
-      id: doc.id,
-      name: doc.data().name,
-      categories: doc.data().categories || [],
-      plan: doc.data().plan,
-      created_at: doc.data().created_at,
-    }));
-  } catch (error) {
-    console.error("Error getting enterprise businesses:", error);
-    return [];
-  }
-}
 
 /**
  * Get new businesses (joined in the last N days)
