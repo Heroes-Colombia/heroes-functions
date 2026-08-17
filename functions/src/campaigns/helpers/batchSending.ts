@@ -310,7 +310,7 @@ export async function sendEmailCampaign(
     preheader: content.preheader,
     sections: content.sections.map((section) => ({
       headline: section.headline,
-      promotions: section.promotions
+      promotions: (Array.isArray(section.promotions) ? section.promotions : [])
         .map((id) => promotionsMap.get(id))
         .filter((p): p is PromotionData => p !== undefined),
       cta_text: section.cta_text,
@@ -454,9 +454,13 @@ export async function sendCampaign(
     case "email": {
       const emailContent = content as EmailContent;
 
-      // Gather all promotion IDs from sections
+      // Gather all promotion IDs from sections. Guard against malformed
+      // content (already-stored docs generated before normalization was
+      // added) where a section's `promotions` isn't an array — flatMap only
+      // flattens array returns, so a bare `undefined` would otherwise be
+      // pushed straight into the array and crash the Firestore "in" query.
       const promotionIds = emailContent.sections.flatMap(
-        (section) => section.promotions
+        (section) => Array.isArray(section.promotions) ? section.promotions : []
       );
 
       // Fetch promotion data

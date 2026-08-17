@@ -248,6 +248,25 @@ export async function generateInAppContent(
 }
 
 /**
+ * Guarantee the shape downstream send code depends on, since Gemini's JSON
+ * output isn't schema-enforced and has been observed to drop/rename fields
+ * (e.g. a section missing `promotions` entirely), which crashes the send
+ * pipeline with an "undefined Firestore value" error.
+ */
+function normalizeEmailContent(content: EmailContent): EmailContent {
+  return {
+    subject: content.subject ?? "",
+    preheader: content.preheader ?? "",
+    sections: (content.sections ?? []).map((section) => ({
+      headline: section.headline ?? "",
+      promotions: Array.isArray(section.promotions) ? section.promotions : [],
+      cta_text: section.cta_text ?? "",
+    })),
+    footer_text: content.footer_text ?? "",
+  };
+}
+
+/**
  * Generate email campaign content using Gemini
  */
 export async function generateEmailContent(
@@ -264,7 +283,7 @@ export async function generateEmailContent(
   try {
     const result = await model.generateContent(prompt);
     const text = result.response.text();
-    return parseJsonResponse<EmailContent>(text);
+    return normalizeEmailContent(parseJsonResponse<EmailContent>(text));
   } catch (error) {
     console.error("Error generating email content:", error);
     throw error;

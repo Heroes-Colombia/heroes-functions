@@ -213,7 +213,16 @@ async function executeSend(
       ...(campaign.content_sources.new_businesses ?? []),
     ];
     if (rotationBusinesses.length > 0) {
-      await updateBusinessRotation(rotationBusinesses, campaignId);
+      // Non-critical bookkeeping — must never overwrite the "sent" status
+      // already committed above if this fails.
+      try {
+        await updateBusinessRotation(rotationBusinesses, campaignId);
+      } catch (error) {
+        console.error(
+          `Campaign ${campaignId} sent successfully but business rotation update failed:`,
+          error
+        );
+      }
     }
 
     if (result.failed_tokens.length > 0) {
